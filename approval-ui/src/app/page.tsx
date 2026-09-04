@@ -2,13 +2,14 @@ import { LeadList } from "@/components/LeadList";
 
 export const revalidate = 0;
 
-export default function Home({
+export default async function Home({
   searchParams,
 }: {
-  searchParams: { status?: string; vertical?: string };
+  searchParams: Promise<{ status?: string; vertical?: string }>;
 }) {
-  const status = searchParams.status || "pending";
-  const vertical = searchParams.vertical || process.env.NEXT_PUBLIC_VERTICAL || "hauler_ai";
+  const { status: rawStatus, vertical: rawVertical } = await searchParams;
+  const status = rawStatus || "pending";
+  const vertical = rawVertical || process.env.NEXT_PUBLIC_VERTICAL || "hauler_ai";
 
   const statuses = ["pending", "approved", "rejected", "sent", "replied"];
 
