@@ -1,0 +1,13 @@
+anthropic>=0.40
+pydantic>=2.0
+python-dotenv
+requests
+fastapi
+uvicorn[standard]
+pyyaml>=6.0
+anyio>=4.0
+twilio>=9.0
+praw>=7.7
+supabase>=2.0
+slowapi>=0.1
+-e .
