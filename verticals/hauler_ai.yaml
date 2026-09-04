@@ -1,0 +1,66 @@
+vertical_id: hauler_ai
+
+product_brief: |
+  Hauler AI automates cross-border customs paperwork for Canadian carriers. It replaces
+  manual eManifest entry and integrates with existing TMS workflows, cutting hours of
+  weekly rekeying to minutes. Target buyers are ops managers and owners at carriers
+  doing regular US-Canada crossings who feel the paperwork burden directly.
+
+icp:
+  description: Canadian trucking carriers, 10–100 power units, cross-border freight
+  disqualifiers:
+    - fewer than 8 trucks
+    - owner-operator (single driver, no employees)
+    - asset-free broker (no trucks owned)
+    - US-domiciled with no Canadian operations
+    - already on a modern TMS (McLeod, TMW, Samsara, KeepTruckin/Motive)
+
+scoring_rules:
+  - rule: "New or expanded US operating authority (FMCSA MC/DOT grant)"
+    delta: 35
+  - rule: "Hiring dispatcher, safety officer, or fleet manager"
+    delta: 25
+  - rule: "Public complaint about eManifest, customs paperwork, or legacy TMS"
+    delta: 30
+  - rule: "Fleet size confirmed 10–100 power units"
+    delta: 10
+  - rule: "Poster or job poster is a decision-maker (owner, ops manager, GM)"
+    delta: 10
+  - rule: "Fleet size confirmed under 8 units"
+    delta: disqualify
+  - rule: "Poster is explicitly an owner-operator (drives their own single truck)"
+    delta: disqualify
+  - rule: "Company is an asset-free freight broker"
+    delta: disqualify
+  - rule: "Company is US-domiciled with no Canadian operations"
+    delta: disqualify
+  - rule: "Company already uses McLeod, TMW, Samsara, or KeepTruckin/Motive TMS"
+    delta: disqualify
+
+qualify_threshold: 70
+
+channels:
+  job_boards:
+    enabled: true
+    queries:
+      - "dispatcher carrier BC"
+      - "safety officer trucking AB"
+      - "fleet manager transport ON"
+      - "dispatcher trucking SK MB"
+      - "customs coordinator carrier Canada"
+  registry:
+    enabled: false
+  reddit:
+    enabled: false
+    subreddits:
+      - r/Truckers
+      - r/TruckingIndustry
+      - r/canadiantruckers
+
+models:
+  extractor: claude-haiku-4-5-20251001
+  scorer: claude-haiku-4-5-20251001
+  researcher: claude-sonnet-4-6
+  drafter: claude-sonnet-4-6
+
+daily_research_budget: 15

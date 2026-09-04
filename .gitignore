@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Generated assets
+assets/generated/
+
+# Env
+.env
+.env.*
+
+# Node
+approval-ui/node_modules/
+approval-ui/.next/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

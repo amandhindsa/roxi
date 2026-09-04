@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "roxi"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40",
+    "pydantic>=2.0",
+    "playwright>=1.40",
+    "python-dotenv",
+    "requests",
+    "fastapi",
+    "uvicorn",
+    "pyyaml>=6.0",
+    "anyio>=4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["roxi*"]
+
+[project.scripts]
+roxi = "roxi.cli:cli"
+
+[project.optional-dependencies]
+reddit = ["praw>=7.7"]
+supabase = ["supabase>=2.0"]
+rate-limit = ["slowapi>=0.1"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio",
+]
+all = ["praw>=7.7", "supabase>=2.0", "slowapi>=0.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "evals"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_return_any = false
+exclude = ["tests/", "evals/"]

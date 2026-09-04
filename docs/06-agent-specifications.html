@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roxi — agent specifications</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ground:#E9EDF1;
+    --panel:#F6F8FA;
+    --ink:#14202B;
+    --ink-soft:#4A5A69;
+    --rule:#C3CDD6;
+    --amber:#B3660C;
+    --amber-wash:#F7EBDA;
+    --teal:#106B5E;
+    --stencil:'Archivo',system-ui,sans-serif;
+    --body:'IBM Plex Sans',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--ground);color:var(--ink);
+    font-family:var(--body);font-size:16px;line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:820px;margin:0 auto;padding:56px 24px 96px}
+  a{color:var(--ink)}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+
+  header{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:44px}
+  h1{
+    font-family:var(--stencil);font-weight:600;font-size:clamp(30px,6vw,46px);
+    letter-spacing:-0.02em;line-height:1.05;margin:0 0 10px;
+  }
+  .standfirst{max-width:60ch;color:var(--ink-soft);margin:0}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:18px}
+
+  h2{
+    font-family:var(--stencil);font-weight:600;font-size:22px;letter-spacing:-0.01em;
+    margin:56px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--rule);
+  }
+  p{max-width:68ch}
+
+  /* Pipeline */
+  .pipe{margin:8px 0 0;border-left:2px solid var(--rule);padding-left:0}
+  .stage{display:flex;gap:16px;align-items:baseline;padding:9px 0 9px 20px;position:relative}
+  .stage::before{
+    content:"";position:absolute;left:-5px;top:18px;width:8px;height:8px;
+    background:var(--ink);border-radius:50%;
+  }
+  .stage-name{font-family:var(--stencil);font-weight:500;min-width:104px}
+  .stage-note{color:var(--ink-soft);font-size:15px}
+  .stage.code .stage-name{color:var(--ink-soft);font-weight:400;font-family:var(--body)}
+
+  .gate{
+    margin:14px 0 14px -2px;padding:14px 20px;background:var(--amber-wash);
+    border-left:6px solid var(--amber);
+  }
+  .gate-title{font-family:var(--stencil);font-weight:600;color:var(--amber)}
+  .gate-body{font-size:15px;color:var(--ink);max-width:60ch;margin:2px 0 0}
+
+  /* Agent blocks */
+  .agent{margin:40px 0 0;padding-top:22px;border-top:1px solid var(--rule)}
+  .agent-head{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;margin-bottom:6px}
+  .agent-name{font-family:var(--stencil);font-weight:600;font-size:25px;margin:0}
+  .agent-model{font-family:var(--mono);font-size:12px;color:var(--ink-soft);border:1px solid var(--rule);padding:2px 8px;background:var(--panel)}
+  .agent-job{max-width:64ch;margin:0 0 18px}
+
+  table{border-collapse:collapse;width:100%;margin:0 0 18px;font-size:15px}
+  th,td{text-align:left;padding:7px 12px 7px 0;vertical-align:top;border-bottom:1px solid var(--rule)}
+  th{font-family:var(--stencil);font-weight:500;width:132px;white-space:nowrap}
+  td code,p code,li code{font-family:var(--mono);font-size:13px;background:var(--panel);padding:1px 5px;border:1px solid var(--rule)}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:0 28px}
+  @media(max-width:620px){.split{grid-template-columns:1fr;gap:0}}
+  .col h4{font-family:var(--stencil);font-weight:500;font-size:15px;margin:0 0 6px}
+  .col.does h4{color:var(--teal)}
+  .col.doesnt h4{color:var(--amber)}
+  .col ul{margin:0 0 18px;padding-left:18px}
+  .col li{font-size:15px;margin-bottom:5px;color:var(--ink-soft)}
+  .col li strong{color:var(--ink);font-weight:500}
+
+  .fail{border-left:3px solid var(--rule);padding:2px 0 2px 16px;margin:6px 0 0;font-size:15px;color:var(--ink-soft);max-width:62ch}
+  .fail b{font-family:var(--stencil);font-weight:500;color:var(--ink)}
+
+  .rules{list-style:none;padding:0;margin:0}
+  .rules li{padding:14px 0;border-bottom:1px solid var(--rule);max-width:70ch}
+  .rules b{font-family:var(--stencil);font-weight:600;display:block;margin-bottom:2px}
+
+  .arith{
+    font-family:var(--mono);font-size:14px;background:var(--panel);
+    border:1px solid var(--rule);padding:16px 18px;margin:18px 0;line-height:1.9;
+  }
+  .arith .bad{color:var(--amber)}
+  .arith .good{color:var(--teal)}
+
+  footer{margin-top:64px;padding-top:18px;border-top:2px solid var(--ink);
+    font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Roxi agent specifications</h1>
+  <p class="standfirst">Five narrow agents, orchestrated by plain code. Each does one job, sees only what that job needs, and hands off a validated object rather than a conversation. The set is fixed for every customer — what changes between them is the config one of these agents writes.</p>
+  <p class="meta">Roxi / docs / 06 &nbsp;·&nbsp; first vertical: Hauler AI, Canadian carriers</p>
+</header>
+
+<h2>Setup — runs once</h2>
+<p>A customer describes their business in plain language. Nobody hand-writes a spec sheet per domain, and nobody edits YAML.</p>
+
+<div class="pipe">
+  <div class="stage"><span class="stage-name">Compiler</span><span class="stage-note">Interviews the user, then emits the vertical config the four run-time agents read.</span></div>
+  <div class="stage code"><span class="stage-name">Review</span><span class="stage-note">User confirms or edits the rules in plain English. Human present, ambiguity resolved once.</span></div>
+</div>
+
+<h2>The run — daily</h2>
+<p>One pass, top to bottom. No agent decides what happens next — <code>pipeline.py</code> does, and a person can read it.</p>
+
+<div class="pipe">
+  <div class="stage"><span class="stage-name">Collectors</span><span class="stage-note">Job boards, registry filings, forums. Raw text, zero interpretation.</span></div>
+  <div class="stage"><span class="stage-name">Extractor</span><span class="stage-note">Every item. Pulls typed facts out of the mess.</span></div>
+  <div class="stage code"><span class="stage-name">Dedupe</span><span class="stage-note">Plain code. Exact signal key, then fuzzy company match with a 30-day cooldown.</span></div>
+  <div class="stage"><span class="stage-name">Scorer</span><span class="stage-note">Every survivor. Applies the vertical's rules and returns a number.</span></div>
+</div>
+
+<div class="gate">
+  <div class="gate-title">Threshold gate — score ≥ 70, capped at 15 per day</div>
+  <p class="gate-body">Everything above this line runs on Haiku against hundreds of items. Everything below runs on Sonnet against a handful. Roughly twenty times the unit cost crosses here, which is why the gate is a hard number in config and not a judgment call.</p>
+</div>
+
+<div class="pipe">
+  <div class="stage"><span class="stage-name">Researcher</span><span class="stage-note">Qualified only. Searches the web, verifies, builds a brief.</span></div>
+  <div class="stage"><span class="stage-name">Drafter</span><span class="stage-note">Writes the opener and the line explaining why today.</span></div>
+  <div class="stage code"><span class="stage-name">Delivery</span><span class="stage-note">Slack card. A person approves. Roxi never sends.</span></div>
+</div>
+
+<h2>Compiler</h2>
+<div class="agent" style="border-top:none;padding-top:0">
+  <div class="agent-head"><h3 class="agent-name">Compiler</h3><span class="agent-model">claude-sonnet-5 + web search</span></div>
+  <p class="agent-job">Turns “we sell dispatch software to Canadian carriers” into a working vertical. It runs at setup, with a person in the room, and everything it produces is reviewable in plain language. This is the only agent whose output a human edits.</p>
+  <table>
+    <tr><th>Sees</th><td>The user's description of their product and buyer, their website, and answers to its own clarifying questions</td></tr>
+    <tr><th>Emits</th><td><code>VerticalConfig</code> — product brief, ICP description, scoring rules with numeric deltas, disqualifiers, threshold, channel selection</td></tr>
+    <tr><th>Tools</th><td>Web search, to read the customer's own site and category</td></tr>
+  </table>
+  <div class="split">
+    <div class="col does"><h4>Does</h4><ul>
+      <li>Ask what a <strong>bad</strong> customer looks like — disqualifiers are where most of the accuracy lives, and users rarely volunteer them</li>
+      <li>Propose scoring rules as <strong>stated deltas</strong>, not descriptions of taste</li>
+      <li>Select channels from the available tiers and say plainly which are unavailable for this domain</li>
+      <li>Warn when a domain has no publicly observable buying signal, rather than shipping a bad first run</li>
+    </ul></div>
+    <div class="col doesnt"><h4>Does not</h4><ul>
+      <li>Run at execution time — it compiles once, then the config is frozen and versioned</li>
+      <li>Invent a channel that no collector supports</li>
+      <li>Emit anything the user cannot read and change</li>
+    </ul></div>
+  </div>
+  <p class="fail"><b>Failure mode:</b> agreeable vagueness — rules like “good fit for growing companies” that a Scorer cannot apply. Every rule it emits must be checkable against a single signal, or it is not a rule.</p>
+  <p class="fail"><b>Scope note:</b> Rilo's builder compiled arbitrary workflows, an unbounded output space that needed a hundred connectors and a self-correcting runtime to survive. This one emits config for a pipeline that already exists. Same natural-language onboarding, a fraction of the failure surface.</p>
+</div>
+
+<h2>Extractor</h2>
+<div class="agent" style="border-top:none;padding-top:0">
+  <div class="agent-head"><h3 class="agent-name">Extractor</h3><span class="agent-model">claude-haiku-4-5</span></div>
+  <p class="agent-job">Turns a scraped job posting, filing, or forum thread into structured facts. It reads literally and makes no judgment about whether the company is worth contacting.</p>
+  <table>
+    <tr><th>Sees</th><td><code>RawItem</code> — channel, source URL, title, body (first 6,000 chars)</td></tr>
+    <tr><th>Emits</th><td><code>Signal</code> — company, domain, location, fleet size, signal type, date, evidence, poster role, identifiable flag</td></tr>
+    <tr><th>Tools</th><td>None</td></tr>
+  </table>
+  <div class="split">
+    <div class="col does"><h4>Does</h4><ul>
+      <li>Names the company and pulls fleet size <strong>only when stated or clearly implied</strong></li>
+      <li>Captures <strong>a verbatim sentence</strong> as evidence, never a paraphrase</li>
+      <li>Classifies the poster from how they write — “my dispatcher” is a driver, “my drivers” is an owner</li>
+      <li>Flags items where no specific company can be named</li>
+    </ul></div>
+    <div class="col doesnt"><h4>Does not</h4><ul>
+      <li>Guess a fleet size from tone or company size cues</li>
+      <li>Decide whether this is a good lead</li>
+      <li>Clean up or improve the source wording</li>
+    </ul></div>
+  </div>
+  <p class="fail"><b>Failure mode:</b> inventing a fleet size that reads plausibly. The verbatim evidence field is the check — if the number is not in the quoted sentence, it was invented.</p>
+</div>
+
+<h2>Scorer</h2>
+<div class="agent" style="border-top:none;padding-top:0">
+  <div class="agent-head"><h3 class="agent-name">Scorer</h3><span class="agent-model">claude-haiku-4-5</span></div>
+  <p class="agent-job">Applies the vertical's stated rules to one clean signal and returns a number with its arithmetic shown. It is the skeptic in the pipeline and it writes nothing a prospect will ever read.</p>
+  <table>
+    <tr><th>Sees</th><td>A <code>Signal</code> and the ICP rule list. Never the raw source text.</td></tr>
+    <tr><th>Emits</th><td><code>ScoredSignal</code> — score 0–100, <code>rules_fired</code> with deltas, internal reasoning, disqualifier</td></tr>
+    <tr><th>Tools</th><td>None</td></tr>
+  </table>
+  <div class="split">
+    <div class="col does"><h4>Does</h4><ul>
+      <li>Apply rules <strong>literally and additively</strong> from a stated baseline</li>
+      <li>List every rule fired with its numeric delta, so the sum can be checked</li>
+      <li>Return zero and name the rule when a disqualifier fires</li>
+    </ul></div>
+    <div class="col doesnt"><h4>Does not</h4><ul>
+      <li>Write <code>why_now</code> or any sales-facing sentence</li>
+      <li>Consider whether the lead could be <em>made</em> to sound appealing</li>
+      <li>Award points for something the evidence does not support</li>
+    </ul></div>
+  </div>
+  <p class="fail"><b>Failure mode:</b> optimism. An earlier version had the Scorer write <code>why_now</code> alongside the number, and once a model has composed a persuasive line it has committed to the lead being good. Scoring and copywriting were split for exactly this reason.</p>
+</div>
+
+<h2>Researcher</h2>
+<div class="agent" style="border-top:none;padding-top:0">
+  <div class="agent-head"><h3 class="agent-name">Researcher</h3><span class="agent-model">claude-sonnet-5 + web search</span></div>
+  <p class="agent-job">Takes a qualified carrier and finds what a salesperson would want to know before the first call. Runs as two calls: one that searches, then a clean one that sees only the notes.</p>
+  <table>
+    <tr><th>Sees</th><td>Company name, location, the signal, and the product brief</td></tr>
+    <tr><th>Emits</th><td><code>ResearchBrief</code> — summary, fleet estimate, lanes, current stack guess, decision-maker title, hooks, confidence</td></tr>
+    <tr><th>Tools</th><td>Web search only — the single tool it needs, and nothing else</td></tr>
+  </table>
+  <div class="split">
+    <div class="col does"><h4>Does</h4><ul>
+      <li>Look for the company site, fleet size, lanes, cross-border activity, and any named software</li>
+      <li>Include <strong>only facts it could verify</strong> in the hooks</li>
+      <li>Return <code>confidence: low</code> and fewer hooks when searches come back thin</li>
+    </ul></div>
+    <div class="col doesnt"><h4>Does not</h4><ul>
+      <li>Invent a contact name — <code>decision_maker_title</code> is a title, not a person</li>
+      <li>Pad a thin brief to look thorough</li>
+      <li>Pass raw search results downstream</li>
+    </ul></div>
+  </div>
+  <p class="fail"><b>Failure mode:</b> confident fabrication when a small carrier has almost no web presence. The confidence field exists so the Drafter can write a shorter email instead of dressing up a guess.</p>
+</div>
+
+<h2>Drafter</h2>
+<div class="agent" style="border-top:none;padding-top:0">
+  <div class="agent-head"><h3 class="agent-name">Drafter</h3><span class="agent-model">claude-sonnet-5</span></div>
+  <p class="agent-job">Writes the first-touch email and the one-line reason this carrier is worth contacting today. It is the only agent allowed to be persuasive, and it writes to people who delete marketing email on sight.</p>
+  <table>
+    <tr><th>Sees</th><td>Signal, score with rules fired, research brief, product brief</td></tr>
+    <tr><th>Emits</th><td><code>EmailDraft</code> — why now, subject, body, hook used</td></tr>
+    <tr><th>Tools</th><td>None</td></tr>
+  </table>
+  <div class="split">
+    <div class="col does"><h4>Does</h4><ul>
+      <li>Open with <strong>the specific researched fact</strong>, not with who we are</li>
+      <li>Stay under 120 words with one concrete product claim</li>
+      <li>Make one small ask — a reply, not a demo</li>
+      <li>Name which hook it used, so bad openers are traceable</li>
+    </ul></div>
+    <div class="col doesnt"><h4>Does not</h4><ul>
+      <li>Write greeting filler or words like “seamless”</li>
+      <li>Add a detail that is not in the brief</li>
+      <li>Send anything</li>
+    </ul></div>
+  </div>
+  <p class="fail"><b>Failure mode:</b> smoothing over a thin brief with generic freight language. A short, specific email beats a long, plausible one, and the model needs telling.</p>
+</div>
+
+<h2>The control plane</h2>
+<p>Every step writes a trace row before it writes anything else: run id, org id, agent, prompt version, input hash, output, tokens, latency, cost, and outcome. The interface can come later — the rows cannot be reconstructed after the fact.</p>
+<p>Prompt version on every row is what answers the question that will eventually matter: did quality drop because of a prompt change, or because a source changed its markup?</p>
+
+<ul class="rules">
+  <li><b>What the customer sees</b>Their own runs, in full. Every lead with its evidence and the rules that fired, and every item dropped with the reason. They are approving mail sent under their name and their domain — asking anyone to take responsibility for reasoning they cannot inspect is a bad trade, and when a card is wrong it is the only way they can tell you why.</li>
+  <li><b>What the operator sees</b>Health across all tenants: step failure rates, collector yield, cost per org, prompt-version performance, eval results over time. A collector silently returning zero rows is the most common real outage and the least visible one.</li>
+  <li><b>What nobody sees</b>Lead data across tenant boundaries. Aggregate metrics in the admin console, never another tenant's prospects. If two customers ever compete, cross-tenant visibility is a breach waiting to happen — so the boundary goes in before the second customer, not after.</li>
+  <li><b>Controls, not just dashboards</b>Per-org spend caps enforced in the execution layer, a kill switch that halts a vertical mid-run, and an allowlist of what each org's agents may touch. Deny rules take precedence over allow rules, enforced centrally so no individual tool can bypass them.</li>
+</ul>
+
+<p>There is a compliance edge here too. Roxi processes information about real people at real companies on a customer's behalf; under BC PIPA and equivalents they carry obligations they cannot discharge if they cannot see what was collected. Tenant-facing traces are part of how they meet them.</p>
+
+<h2>Why the boundaries sit where they do</h2>
+<ul class="rules">
+  <li><b>One decision type per call</b>If two outputs would pull the model in opposite directions, they belong in different calls. Scoring wants skepticism; drafting wants warmth. Extraction and role classification both want literal reading, so they share a call.</li>
+  <li><b>Context isolation is the quality lever</b>The Scorer sees six clean fields, never 8,000 tokens of scraped HTML. Judgment degrades in proportion to junk in the window, and this is invisible while you are using a single agent because you never see the clean version.</li>
+  <li><b>Typed handoffs, not conversation</b>Steps pass validated objects. The Drafter cannot be confused by the Extractor's reasoning because it never sees it.</li>
+  <li><b>One tool, or none</b>Give a model twelve tools and it picks wrong. The Researcher has web search and nothing else, so there is no wrong choice available.</li>
+  <li><b>Compile at setup, execute at run time</b>The Compiler is the only agent that resolves ambiguity, and it does so once, with a person present. Everything downstream executes against a frozen, versioned config. This is what keeps daily runs reproducible and cheap.</li>
+</ul>
+
+<h2>The reliability arithmetic</h2>
+<p>This is the whole case for splitting the work up, and it is worth keeping visible:</p>
+<div class="arith">
+  <span class="bad">one agent, five jobs &nbsp; 0.90⁵ = 59% end to end &nbsp; — and no idea which part failed</span><br>
+  <span class="good">five agents, retried &nbsp; 0.99⁵ = 95% end to end &nbsp; — with a trace showing exactly where</span>
+</div>
+<p>Each step retries independently against its own schema. A validation failure gets one retry with the error fed back, then the record is dropped and logged rather than passed downstream half-formed.</p>
+
+<footer>Roxi &nbsp;·&nbsp; agent specifications &nbsp;·&nbsp; 3 September 2026 &nbsp;·&nbsp; system view: 04-roxi-architecture.md &nbsp;·&nbsp; outbound and content: 08-outbound-and-content-pipelines.md</footer>
+
+</div>
+</body>
+</html>

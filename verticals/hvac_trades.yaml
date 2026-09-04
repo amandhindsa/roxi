@@ -1,0 +1,72 @@
+vertical_id: hvac_trades
+
+product_brief: |
+  SysBuddies is a field service management platform for HVAC and trades contractors.
+  It replaces spreadsheets and phone-tag scheduling with automated dispatch, job
+  tracking, invoicing, and customer communication. Target buyers are HVAC, plumbing,
+  and electrical business owners with 3–30 technicians who are still running on
+  spreadsheets or a legacy system that doesn't handle mobile dispatch.
+
+icp:
+  description: |
+    HVAC, plumbing, or electrical contractors with 3–30 field technicians,
+    primarily residential or light commercial service. Owner-operated or small
+    management team. Based in Canada or northern US markets.
+  disqualifiers:
+    - fewer than 3 technicians (too small for platform ROI)
+    - enterprise or national franchise (wrong segment, needs enterprise sales)
+    - already on ServiceTitan, Jobber, Housecall Pro, or FieldEdge
+    - new business (under 1 year operating, no dispatch problem yet)
+    - commercial-only large project general contractor (not service calls)
+
+scoring_rules:
+  - rule: "Hiring a dispatcher, service coordinator, or office manager for field ops"
+    delta: 30
+  - rule: "Owner complaint about scheduling chaos, double-booking, or missed jobs"
+    delta: 35
+  - rule: "Public complaint about current software (spreadsheets, outdated system)"
+    delta: 30
+  - rule: "Hiring additional technicians (growing headcount = growing dispatch pain)"
+    delta: 20
+  - rule: "Fleet or tech count confirmed 3–30"
+    delta: 10
+  - rule: "Poster is owner or operations manager (decision-maker)"
+    delta: 10
+  - rule: "Explicitly mentions needing software or asking for recommendations"
+    delta: 15
+  - rule: "Already on ServiceTitan, Jobber, Housecall Pro, or FieldEdge"
+    delta: disqualify
+  - rule: "Fewer than 3 technicians confirmed"
+    delta: disqualify
+  - rule: "Enterprise or national franchise"
+    delta: disqualify
+
+qualify_threshold: 70
+
+channels:
+  job_boards:
+    enabled: true
+    queries:
+      - "dispatcher HVAC contractor"
+      - "service coordinator plumbing company"
+      - "office manager electrical contractor"
+      - "dispatch coordinator heating cooling"
+      - "HVAC technician hiring growing company"
+  registry:
+    enabled: false
+  reddit:
+    enabled: false
+    subreddits:
+      - r/HVAC
+      - r/Plumbing
+      - r/electricians
+      - r/smallbusiness
+      - r/ContractorTalk
+
+models:
+  extractor: claude-haiku-4-5-20251001
+  scorer: claude-haiku-4-5-20251001
+  researcher: claude-sonnet-4-6
+  drafter: claude-sonnet-4-6
+
+daily_research_budget: 15
