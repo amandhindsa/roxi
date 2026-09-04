@@ -239,7 +239,6 @@ def init_db(path: str | None = None) -> None:
 
 def save(lead: Lead, vertical_id: str, org_id: str | None = None, subscription_id: str | None = None) -> bool:
     """Persist lead. Returns True if inserted, False on dedupe_key collision."""
-        return b.save(lead, vertical_id, org_id)
     try:
         return _save(lead, vertical_id, org_id, subscription_id)
     except Exception as exc:
@@ -290,7 +289,6 @@ def _save(lead: Lead, vertical_id: str, org_id: str | None = None, subscription_
 
 
 def update_status(lead_id: str, status: str, rejection_reason: str | None = None) -> None:
-        return b.update_status(lead_id, status)
     try:
         with _conn() as con:
             if rejection_reason is not None:
@@ -306,7 +304,6 @@ def update_status(lead_id: str, status: str, rejection_reason: str | None = None
 
 
 def update_contact_email(lead_id: str, email: str) -> None:
-        return b.update_contact_email(lead_id, email)
     try:
         with _conn() as con:
             con.execute("UPDATE leads SET contact_email=? WHERE id=?", (email, lead_id))
@@ -316,7 +313,6 @@ def update_contact_email(lead_id: str, email: str) -> None:
 
 
 def get_lead(lead_id: str) -> dict | None:
-        return b.get_lead(lead_id)
     with _conn() as con:
         row = con.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
     if not row:
@@ -326,7 +322,6 @@ def get_lead(lead_id: str) -> dict | None:
 
 def find_lead_by_short_id(short_id: str) -> dict | None:
     """Resolve the first 8 characters of a lead ID to the full lead row."""
-        return b.find_lead_by_short_id(short_id)
     with _conn() as con:
         row = con.execute(
             "SELECT * FROM leads WHERE id LIKE ? LIMIT 1", (short_id + "%",)
@@ -342,7 +337,6 @@ def list_leads(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
-        return b.list_leads(vertical_id, status, limit, offset)
     with _conn() as con:
         rows = con.execute(
             """SELECT * FROM leads
@@ -354,7 +348,6 @@ def list_leads(
 
 
 def get_stats(vertical_id: str, days: int = 30) -> dict:
-        return b.get_stats(vertical_id, days)
     with _conn() as con:
         status_rows = con.execute(
             """SELECT status, COUNT(*) as n FROM leads
@@ -386,7 +379,6 @@ def get_stats(vertical_id: str, days: int = 30) -> dict:
 
 
 def list_runs(vertical_id: str | None = None, limit: int = 20) -> list[dict]:
-        return b.list_runs(vertical_id, limit)
     with _conn() as con:
         if vertical_id:
             rows = con.execute(
@@ -401,14 +393,12 @@ def list_runs(vertical_id: str | None = None, limit: int = 20) -> list[dict]:
 
 
 def get_run(run_id: str) -> dict | None:
-        return b.get_run(run_id)
     with _conn() as con:
         row = con.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     return dict(row) if row else None
 
 
 def list_llm_calls(run_id: str, limit: int = 200) -> list[dict]:
-        return b.list_llm_calls(run_id, limit)
     with _conn() as con:
         rows = con.execute(
             """SELECT * FROM llm_calls WHERE run_id=?
@@ -424,7 +414,6 @@ def list_events(
     vertical_id: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
-        return b.list_events(run_id=run_id, agent=agent, vertical_id=vertical_id, limit=limit)
     try:  # noqa: SIM105  — intentional: telemetry must never surface errors to callers
         clauses = []
         params: list = []
@@ -451,7 +440,6 @@ def list_events(
 
 
 def daily_costs(days: int = 30, vertical_id: str | None = None) -> list[dict]:
-        return b.daily_costs(days, vertical_id)
     with _conn() as con:
         if vertical_id:
             rows = con.execute(
@@ -478,7 +466,6 @@ def daily_costs(days: int = 30, vertical_id: str | None = None) -> list[dict]:
 
 
 def pending_leads(vertical_id: str) -> list[Lead]:
-        return b.pending_leads(vertical_id)
     with _conn() as con:
         rows = con.execute(
             "SELECT * FROM leads WHERE vertical_id=? AND status='pending'",
@@ -488,7 +475,6 @@ def pending_leads(vertical_id: str) -> list[Lead]:
 
 
 def recent_company_names(days: int = 30, org_id: str | None = None) -> list[str]:
-        return b.recent_company_names(days, org_id)
     with _conn() as con:
         if org_id:
             rows = con.execute(
@@ -518,7 +504,6 @@ def seen_dedupe_keys(subscription_id: str | None = None, days: int = 90, org_id:
     When subscription_id is provided, only keys for that subscription are returned.
     When org_id is provided (legacy), only keys for that org are returned.
     """
-        return b.seen_dedupe_keys(subscription_id=subscription_id, days=days, org_id=org_id)
     with _conn() as con:
         if subscription_id is not None:
             rows = con.execute(
@@ -553,12 +538,6 @@ def log_llm_call(
     input_hash: str | None = None,
     outcome: str | None = None,
 ) -> None:
-        return b.log_llm_call(
-            model=model, agent=agent, input_tokens=input_tokens,
-            output_tokens=output_tokens, cost_usd=cost_usd, latency_ms=latency_ms,
-            lead_id=lead_id, run_id=run_id, org_id=org_id,
-            prompt_version=prompt_version, input_hash=input_hash, outcome=outcome,
-        )
     try:
         _log_llm_call_inner(model=model, agent=agent, input_tokens=input_tokens,
                             output_tokens=output_tokens, cost_usd=cost_usd, latency_ms=latency_ms,
@@ -610,7 +589,6 @@ def _log_llm_call_inner(
 
 def get_run_cost(run_id: str) -> float:
     """Public method to tally LLM cost for a run without exposing _conn."""
-        return b.get_run_cost(run_id)
     try:
         with _conn() as con:
             row = con.execute(
@@ -622,16 +600,16 @@ def get_run_cost(run_id: str) -> float:
         return 0.0
 
 
-def start_run(vertical_id: str, org_id: str | None = None) -> str:
-        return b.start_run(vertical_id, org_id)
-    log.debug("store.start_run: vertical=%s org=%s", vertical_id, org_id)
+def start_run(vertical_id: str, org_id: str | None = None,
+              subscription_id: str | None = None) -> str:
+    log.debug("store.start_run: vertical=%s org=%s sub=%s", vertical_id, org_id, subscription_id)
     run_id = str(uuid.uuid4())
     try:
         with _conn() as con:
             con.execute(
-                """INSERT INTO runs (id, vertical_id, org_id, started_at)
-                   VALUES (?,?,?,?)""",
-                (run_id, vertical_id, org_id, _now()),
+                """INSERT INTO runs (id, vertical_id, org_id, subscription_id, started_at)
+                   VALUES (?,?,?,?,?)""",
+                (run_id, vertical_id, org_id, subscription_id, _now()),
             )
     except Exception as exc:
         log.error("store.start_run failed vertical=%s: %s", vertical_id, exc, exc_info=True)
@@ -648,11 +626,6 @@ def finish_run(
     leads_delivered: int = 0,
     total_cost_usd: float = 0.0,
 ) -> None:
-        return b.finish_run(run_id, raw_collected=raw_collected,
-                            signals_extracted=signals_extracted,
-                            signals_qualified=signals_qualified,
-                            leads_delivered=leads_delivered,
-                            total_cost_usd=total_cost_usd)
     try:
         with _conn() as con:
             con.execute(
@@ -686,10 +659,6 @@ def log_stage_output(
     source_url: str | None = None,
     company: str | None = None,
 ) -> None:
-        return b.log_stage_output(run_id=run_id, item_seq=item_seq, stage=stage,
-                                   status=status, org_id=org_id, drop_reason=drop_reason,
-                                   drop_detail=drop_detail, payload_json=payload_json,
-                                   source_url=source_url, company=company)
     try:
         with _conn() as con:
             con.execute(
@@ -717,7 +686,6 @@ def log_stage_output(
 
 
 def add_to_suppression_list(contact_identifier: str, channel: str, reason: str) -> None:
-        return b.add_to_suppression_list(contact_identifier, channel, reason)
     try:
         with _conn() as con:
             con.execute(
@@ -732,7 +700,6 @@ def add_to_suppression_list(contact_identifier: str, channel: str, reason: str) 
 
 
 def is_suppressed(contact_identifier: str, channel: str) -> bool:
-        return b.is_suppressed(contact_identifier, channel)
     with _conn() as con:
         row = con.execute(
             """SELECT 1 FROM suppression_list
@@ -743,7 +710,6 @@ def is_suppressed(contact_identifier: str, channel: str) -> bool:
 
 
 def list_suppression(channel: str | None = None, limit: int = 100) -> list[dict]:
-        return b.list_suppression(channel, limit)
     with _conn() as con:
         if channel:
             rows = con.execute(
@@ -758,7 +724,6 @@ def list_suppression(channel: str | None = None, limit: int = 100) -> list[dict]
 
 
 def remove_from_suppression_list(contact_identifier: str, channel: str) -> bool:
-        return b.remove_from_suppression_list(contact_identifier, channel)
     with _conn() as con:
         cur = con.execute(
             "DELETE FROM suppression_list WHERE contact_identifier=? AND channel=?",
@@ -770,7 +735,6 @@ def remove_from_suppression_list(contact_identifier: str, channel: str) -> bool:
 
 def log_publish(*, item_id: str, platform: str, result: "PublishResult") -> None:
     """Audit row for every publish attempt (success or failure)."""
-        return b.log_publish(item_id=item_id, platform=platform, result=result)
     with _conn() as con:
         con.execute(
             """INSERT INTO publish_log
@@ -790,7 +754,6 @@ def log_publish(*, item_id: str, platform: str, result: "PublishResult") -> None
 
 def record_generation_cost(*, item_id: str, provider: str, cost_usd: float) -> None:
     """Record an image/video generation cost. Schema owned by init_db."""
-        return b.record_generation_cost(item_id=item_id, provider=provider, cost_usd=cost_usd)
     try:
         with _conn() as con:
             con.execute(

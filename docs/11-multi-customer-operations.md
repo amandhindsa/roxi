@@ -129,7 +129,43 @@ a morning digest.
 Yes, this is needed, and it is more than an approval queue. A customer is being asked to put their
 name on outbound mail; they need enough visibility to take that responsibility seriously.
 
-Six screens.
+Seven screens, plus settings. The first one is where a customer starts before any leads exist.
+
+### 0. Setup — the interview
+
+This is the screen a new owner sees first, and it is the one furthest from what exists today. The
+interview currently runs as a terminal program: it prints questions, waits for typed answers, and
+ends by printing raw configuration text. A customer can never reach it, and the output is exactly
+the syntax the rest of this document says they should never see.
+
+As a screen it works like this:
+
+1. **Two fields to begin.** What do you sell and who buys it, and your website address.
+2. **A short conversation.** Roxi reads the site, then asks what it needs. A handful of exchanges,
+   not a long form. The questions that carry the most weight are about the negative case — what
+   does a *bad* customer look like — because disqualifiers hold most of the accuracy and nobody
+   offers them unprompted.
+3. **The draft, in plain English.** Not configuration. Something closer to: "We will look for
+   companies with 10 to 100 trucks. We will skip owner-operators and anyone already on a modern
+   system. A new cross-border authority filing is worth 35 points, hiring a dispatcher 25."
+4. **Accept, or say what is wrong.** Corrections are given in ordinary words and the draft is
+   rewritten. This loop runs as many times as needed.
+5. **Honesty about fit.** If an industry has no publicly observable buying signals, the interview
+   should say so rather than produce a configuration that will disappoint. A short honest "this is
+   not a good fit for us" costs one sale and saves a refund and a bad reference.
+
+**The technical requirement this creates.** The existing interview holds the whole conversation in
+memory and blocks waiting for the next typed line. A screen cannot work that way — each answer
+arrives as a separate request, possibly hours apart, possibly from a different device. The
+conversation has to be stored against a setup session, appended to with each reply, and resumable,
+because people abandon setup halfway through and come back the next day. That is a rewrite of the
+interview, not a wrapper around it.
+
+**Run it manually first.** For the first several customers, do the interview live on a call and
+fill in the configuration yourself. Watch where they hesitate, where they misunderstand the
+question, and where they give an answer the current questions cannot use. Those moments are the
+specification for the self-serve version. Building the form before knowing what to ask produces a
+polite form that asks the wrong things.
 
 ### 1. Today's leads — the core screen
 
@@ -211,7 +247,7 @@ breach waiting to happen. The boundary goes in before the second customer, not a
 
 1. **Interview.** They describe their product and their buyer. Roxi reads their website. It asks
    what a *bad* customer looks like, because disqualifiers carry most of the accuracy and nobody
-   volunteers them.
+   volunteers them. Early on this happens on a call with us driving; later it is screen 0.
 2. **Draft rules.** Presented in plain English for the customer to correct. They know their market
    better than any model does.
 3. **Label examples.** Someone marks about fifty real examples with what each is worth. **This is
@@ -278,13 +314,18 @@ switches. Alerts when a source goes quiet.
 
 *Done when:* a week passes with no manual intervention and no budget surprises.
 
-### Stage 6 — Self-service rules and sources
+### Stage 6 — Self-service rules, sources, and setup
 
 Editable rules with the preview-against-last-week feature. Sources switched on and off by the
-customer.
+customer. The interview becomes a screen: stored conversation, resumable across sessions and
+devices, plain-English draft, no configuration syntax anywhere in the customer's view.
 
-*Done when:* a customer changes their own targeting, sees the predicted effect, and the next run
-reflects it.
+*Done when:* a customer completes setup without us on the call, changes their own targeting, sees
+the predicted effect, and the next run reflects it.
+
+*Note:* the interview rewrite is the larger half of this stage. Until it ships, onboarding is a
+manual step we perform — which is the right sequence anyway, since the first several interviews
+teach us what the questions should be.
 
 ### Stage 7 — Results and retuning
 

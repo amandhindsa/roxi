@@ -75,7 +75,7 @@ def run(
     if not _check_spend_ceiling(subscription_id, spend_ceiling_usd):
         return []
 
-    run_id = store.start_run(vertical.vertical_id, org_id=org_id)
+    run_id = store.start_run(vertical.vertical_id, org_id=org_id, subscription_id=subscription_id)
     log.info("run %s started for %s (org_id=%s, subscription_id=%s)",
              run_id, vertical.vertical_id, org_id, subscription_id)
     emit("run.start", run_id=run_id, vertical_id=vertical.vertical_id,

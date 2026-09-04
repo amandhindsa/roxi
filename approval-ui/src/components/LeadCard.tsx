@@ -1,203 +1,247 @@
-"use client";
+"use client"
 
-import { useState } from "react";
+import { useState } from "react"
+import type { LeadDetail } from "@/lib/api"
 
-type Lead = {
-  id: string;
-  signal: {
-    company: string;
-    location: string | null;
-    signal_type: string;
-    evidence: string;
-    fleet_size: number | null;
-  };
-  scored: {
-    score: number;
-    rules_fired: { rule: string; delta: number }[];
-    disqualified_by: string | null;
-  };
-  research: {
-    company_summary: string;
-    fleet_estimate: string | null;
-    operating_lanes: string[];
-    current_stack_guess: string | null;
-    decision_maker_title: string | null;
-    hooks: string[];
-    confidence: "high" | "medium" | "low";
-  } | null;
-  draft: {
-    why_now: string;
-    subject: string;
-    body: string;
-    hook_used: string;
-  } | null;
-  status: string;
-  created_at: string;
-};
+type RejectionReason = "wrong_size" | "wrong_industry" | "existing_customer" | "bad_timing" | "other"
 
-const SIGNAL_LABELS: Record<string, string> = {
-  hiring: "hiring",
-  authority_grant: "authority",
-  pain_complaint: "pain",
-};
+const REJECTION_LABELS: Record<RejectionReason, string> = {
+  wrong_size: "Wrong fleet size",
+  wrong_industry: "Wrong industry",
+  existing_customer: "Existing customer",
+  bad_timing: "Bad timing",
+  other: "Other",
+}
 
-const CONFIDENCE_STYLES: Record<string, string> = {
-  high: "bg-teal-wash text-teal",
-  medium: "bg-amber-wash text-amber",
-  low: "bg-gray-100 text-ink-soft",
-};
+interface Props {
+  lead: LeadDetail
+  showActions: boolean
+  focused: boolean
+  onDecision: (
+    id: string,
+    decision: "approved" | "rejected",
+    rejectionReason?: string,
+    rejectionNote?: string
+  ) => void
+}
 
-export function LeadCard({
-  lead,
-  showActions,
-  onDecision,
-}: {
-  lead: Lead;
-  showActions: boolean;
-  onDecision: (id: string, decision: "approved" | "rejected") => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [acting, setActing] = useState(false);
+export function LeadCard({ lead, showActions, focused, onDecision }: Props) {
+  const [expanded, setExpanded] = useState(false)
+  const [editingDraft, setEditingDraft] = useState(false)
+  const [draftBody, setDraftBody] = useState(
+    lead.draft_edited_json?.body ?? lead.draft?.body ?? ""
+  )
+  const [draftSubject, setDraftSubject] = useState(
+    lead.draft_edited_json?.subject ?? lead.draft?.subject ?? ""
+  )
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [showRejectForm, setShowRejectForm] = useState(false)
+  const [rejectionReason, setRejectionReason] = useState<RejectionReason>("wrong_size")
+  const [rejectionNote, setRejectionNote] = useState("")
 
-  const { signal, scored, research, draft } = lead;
-  const date = new Date(lead.created_at).toLocaleDateString("en-CA");
-
-  const handleDecision = async (decision: "approved" | "rejected") => {
-    setActing(true);
-    await onDecision(lead.id, decision);
-    setActing(false);
-  };
+  const signal = lead.signal
+  const scored = lead.scored
+  const research = lead.research
+  const draft = lead.draft_edited_json ?? lead.draft
 
   const scoreColor =
     scored.score >= 80
       ? "text-teal"
-      : scored.score >= 70
+      : scored.score >= 60
       ? "text-ink"
-      : "text-ink-soft";
+      : "text-amber"
+
+  const handleSaveDraft = async () => {
+    setSavingDraft(true)
+    try {
+      await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draft_edited_json: {
+            ...(draft ?? {}),
+            subject: draftSubject,
+            body: draftBody,
+          },
+        }),
+      })
+      setEditingDraft(false)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
+  const handleApprove = () => {
+    onDecision(lead.id, "approved")
+  }
+
+  const handleRejectConfirm = () => {
+    onDecision(lead.id, "rejected", rejectionReason, rejectionNote || undefined)
+    setShowRejectForm(false)
+  }
 
   return (
-    <div className="bg-panel border border-rule">
+    <div
+      className={`bg-panel border border-rule p-4 transition-all ${
+        focused ? "ring-2 ring-teal" : ""
+      }`}
+    >
       {/* Header row */}
-      <div className="px-5 py-4 flex items-start gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-3 flex-wrap">
-            <span className="font-medium text-base">{signal.company}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono font-bold text-base text-ink">{signal.company}</span>
             {signal.location && (
-              <span className="text-ink-soft text-sm font-mono">{signal.location}</span>
+              <span className="text-xs font-mono text-ink-soft">{signal.location}</span>
             )}
-            <span className="text-xs font-mono border border-rule px-1.5 py-0.5 text-ink-soft">
-              {SIGNAL_LABELS[signal.signal_type] || signal.signal_type}
-            </span>
             {signal.fleet_size && (
-              <span className="text-xs font-mono text-ink-soft">{signal.fleet_size} units</span>
+              <span className="text-xs font-mono bg-ground border border-rule px-1.5 py-0.5 text-ink-soft">
+                {signal.fleet_size} trucks
+              </span>
             )}
+            <span className="text-xs font-mono bg-ground border border-rule px-1.5 py-0.5 text-ink-soft">
+              {signal.signal_type.replace("_", " ")}
+            </span>
           </div>
-          {draft?.why_now && (
-            <p className="text-sm text-ink mt-1.5 leading-snug">{draft.why_now}</p>
-          )}
-          <p className="text-xs text-ink-soft font-mono mt-1.5 italic">
-            "{signal.evidence}"
-          </p>
+          <p className="text-sm text-ink-soft font-mono mt-1 line-clamp-2">{signal.evidence}</p>
         </div>
-
-        <div className="flex flex-col items-end gap-2 shrink-0">
-          <span className={`font-mono font-medium text-lg leading-none ${scoreColor}`}>
-            {scored.score}
-          </span>
-          <span className="text-ink-soft font-mono text-[10px]">/100</span>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span className={`font-mono font-bold text-lg ${scoreColor}`}>{scored.score}</span>
+          {scored.disqualified_by && (
+            <span className="text-xs font-mono text-amber bg-amber-wash border border-amber px-1.5 py-0.5">
+              DQ: {scored.disqualified_by}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Rules fired */}
-      <div className="px-5 pb-3 flex flex-wrap gap-1.5">
-        {scored.rules_fired.map((r, i) => (
-          <span
-            key={i}
-            className="text-[11px] font-mono bg-ground border border-rule px-1.5 py-0.5 text-ink-soft"
-          >
-            +{r.delta} {r.rule.length > 40 ? r.rule.slice(0, 38) + "…" : r.rule}
-          </span>
-        ))}
-      </div>
+      {scored.rules_fired.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {scored.rules_fired.map((r, i) => (
+            <span
+              key={i}
+              className={`text-xs font-mono px-1.5 py-0.5 border ${
+                r.delta > 0
+                  ? "text-teal border-teal bg-teal-wash"
+                  : "text-amber border-amber bg-amber-wash"
+              }`}
+            >
+              {r.rule} {r.delta > 0 ? "+" : ""}{r.delta}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Expand toggle */}
       <button
-        className="w-full px-5 py-2 border-t border-rule text-left text-xs font-mono text-ink-soft hover:text-ink flex items-center gap-2 transition-colors"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() => setExpanded(v => !v)}
+        className="mt-2 text-xs font-mono text-ink-soft hover:text-ink transition-colors"
       >
-        <span>{expanded ? "▲" : "▼"}</span>
-        {expanded ? "hide" : "show draft + research"}
+        {expanded ? "▲ collapse" : "▼ expand"}
       </button>
 
       {expanded && (
-        <div className="border-t border-rule">
-          {/* Draft email */}
-          {draft && (
-            <div className="px-5 py-4 border-b border-rule">
-              <p className="text-xs font-mono text-ink-soft uppercase tracking-wider mb-2">
-                Draft email
-              </p>
-              <p className="text-sm font-medium mb-1">Subject: {draft.subject}</p>
-              <pre className="text-sm whitespace-pre-wrap font-sans text-ink leading-relaxed bg-ground p-3 border border-rule">
-                {draft.body}
-              </pre>
-              <p className="text-xs font-mono text-ink-soft mt-2">
-                Hook: {draft.hook_used}
-              </p>
+        <div className="mt-4 space-y-4">
+          {/* Research */}
+          {research && (
+            <div className="bg-ground border border-rule p-3">
+              <div className="text-xs font-mono text-ink-soft mb-1 uppercase tracking-wide">
+                Research · confidence: {research.confidence}
+              </div>
+              <p className="text-sm font-mono text-ink">{research.company_summary}</p>
+              {research.fleet_estimate && (
+                <p className="text-xs font-mono text-ink-soft mt-1">Fleet: {research.fleet_estimate}</p>
+              )}
+              {research.operating_lanes.length > 0 && (
+                <p className="text-xs font-mono text-ink-soft mt-1">
+                  Lanes: {research.operating_lanes.join(", ")}
+                </p>
+              )}
+              {research.decision_maker_title && (
+                <p className="text-xs font-mono text-ink-soft mt-1">
+                  DM title: {research.decision_maker_title}
+                </p>
+              )}
+              {research.hooks.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-xs font-mono text-ink-soft mb-1">Hooks:</div>
+                  <ul className="space-y-0.5">
+                    {research.hooks.map((h, i) => (
+                      <li key={i} className="text-xs font-mono text-ink">· {h}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Research brief */}
-          {research && (
-            <div className="px-5 py-4">
-              <div className="flex items-center gap-2 mb-3">
-                <p className="text-xs font-mono text-ink-soft uppercase tracking-wider">
-                  Research
-                </p>
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.5 ${
-                    CONFIDENCE_STYLES[research.confidence]
-                  }`}
-                >
-                  {research.confidence} confidence
-                </span>
-              </div>
-              <p className="text-sm text-ink mb-3">{research.company_summary}</p>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm mb-3">
-                {research.fleet_estimate && (
-                  <>
-                    <span className="text-ink-soft font-mono text-xs">Fleet</span>
-                    <span>{research.fleet_estimate}</span>
-                  </>
-                )}
-                {research.operating_lanes.length > 0 && (
-                  <>
-                    <span className="text-ink-soft font-mono text-xs">Lanes</span>
-                    <span>{research.operating_lanes.join(", ")}</span>
-                  </>
-                )}
-                {research.current_stack_guess && (
-                  <>
-                    <span className="text-ink-soft font-mono text-xs">Stack</span>
-                    <span>{research.current_stack_guess}</span>
-                  </>
-                )}
-                {research.decision_maker_title && (
-                  <>
-                    <span className="text-ink-soft font-mono text-xs">DM title</span>
-                    <span>{research.decision_maker_title}</span>
-                  </>
+          {/* Draft */}
+          {draft && (
+            <div className="bg-ground border border-rule p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-mono text-ink-soft uppercase tracking-wide">
+                  Email draft {lead.draft_edited_json ? "(edited)" : ""}
+                </div>
+                {!editingDraft && (
+                  <button
+                    onClick={() => setEditingDraft(true)}
+                    className="text-xs font-mono text-teal hover:opacity-80"
+                  >
+                    edit
+                  </button>
                 )}
               </div>
-              {research.hooks.length > 0 && (
-                <ul className="text-sm space-y-1">
-                  {research.hooks.map((h, i) => (
-                    <li key={i} className="flex gap-2">
-                      <span className="text-teal mt-0.5">•</span>
-                      <span>{h}</span>
-                    </li>
-                  ))}
-                </ul>
+
+              {editingDraft ? (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs font-mono text-ink-soft block mb-1">Subject</label>
+                    <input
+                      value={draftSubject}
+                      onChange={e => setDraftSubject(e.target.value)}
+                      className="w-full border border-rule bg-panel px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-ink"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-mono text-ink-soft block mb-1">Body</label>
+                    <textarea
+                      value={draftBody}
+                      onChange={e => setDraftBody(e.target.value)}
+                      rows={8}
+                      className="w-full border border-rule bg-panel px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-ink resize-y"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSaveDraft}
+                      disabled={savingDraft}
+                      className="text-xs font-mono bg-teal text-white px-3 py-1.5 hover:opacity-90 disabled:opacity-50"
+                    >
+                      {savingDraft ? "saving…" : "save edit"}
+                    </button>
+                    <button
+                      onClick={() => setEditingDraft(false)}
+                      className="text-xs font-mono border border-rule px-3 py-1.5 text-ink-soft hover:text-ink"
+                    >
+                      cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-sm font-mono text-ink font-medium mb-1">
+                    {draftSubject}
+                  </div>
+                  <pre className="text-xs font-mono text-ink whitespace-pre-wrap">{draftBody}</pre>
+                  {draft.why_now && (
+                    <p className="text-xs font-mono text-ink-soft mt-2 border-t border-rule pt-2">
+                      Why now: {draft.why_now}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -205,30 +249,80 @@ export function LeadCard({
       )}
 
       {/* Actions */}
-      {showActions && (
-        <div className="px-5 py-3 border-t border-rule flex gap-3">
-          <button
-            disabled={acting}
-            onClick={() => handleDecision("approved")}
-            className="flex-1 py-2 text-sm font-mono font-medium bg-teal text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
-            Approve
-          </button>
-          <button
-            disabled={acting}
-            onClick={() => handleDecision("rejected")}
-            className="flex-1 py-2 text-sm font-mono border border-rule text-ink-soft hover:text-ink hover:border-ink transition-colors disabled:opacity-50"
-          >
-            Reject
-          </button>
+      {showActions && lead.status === "pending" && (
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
+          {!showRejectForm ? (
+            <>
+              <button
+                onClick={handleApprove}
+                className="text-xs font-mono bg-teal text-white px-4 py-2 hover:opacity-90 transition-opacity"
+              >
+                approve
+              </button>
+              <button
+                onClick={() => setShowRejectForm(true)}
+                className="text-xs font-mono border border-rule px-4 py-2 text-ink-soft hover:text-ink transition-colors"
+              >
+                reject
+              </button>
+            </>
+          ) : (
+            <div className="w-full bg-ground border border-rule p-3 space-y-2">
+              <div className="text-xs font-mono text-ink-soft mb-1">Rejection reason</div>
+              <select
+                value={rejectionReason}
+                onChange={e => setRejectionReason(e.target.value as RejectionReason)}
+                className="w-full border border-rule bg-panel px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-ink"
+              >
+                {Object.entries(REJECTION_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={rejectionNote}
+                onChange={e => setRejectionNote(e.target.value)}
+                placeholder="Optional note…"
+                className="w-full border border-rule bg-panel px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-ink"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRejectConfirm}
+                  className="text-xs font-mono bg-amber-wash border border-amber text-amber px-4 py-1.5 hover:opacity-90"
+                >
+                  confirm reject
+                </button>
+                <button
+                  onClick={() => setShowRejectForm(false)}
+                  className="text-xs font-mono border border-rule px-3 py-1.5 text-ink-soft hover:text-ink"
+                >
+                  cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Footer */}
-      <div className="px-5 py-2 border-t border-rule flex justify-between text-[10px] font-mono text-ink-soft">
-        <span>{lead.id.slice(0, 8)}</span>
-        <span>{date}</span>
-      </div>
+      {/* Status badge for non-pending */}
+      {lead.status !== "pending" && (
+        <div className="mt-3 flex items-center gap-2">
+          <span
+            className={`text-xs font-mono px-2 py-0.5 border ${
+              lead.status === "approved" || lead.status === "sent" || lead.status === "replied"
+                ? "text-teal border-teal bg-teal-wash"
+                : "text-amber border-amber bg-amber-wash"
+            }`}
+          >
+            {lead.status}
+          </span>
+          {lead.rejection_reason && (
+            <span className="text-xs font-mono text-ink-soft">
+              {REJECTION_LABELS[lead.rejection_reason as RejectionReason] ?? lead.rejection_reason}
+            </span>
+          )}
+        </div>
+      )}
     </div>
-  );
+  )
 }

@@ -20,7 +20,8 @@ Compiled 3 September 2026. Last revised the same day.
 | `08-outbound-and-content-pipelines.md` | Dispatcher, Responder, and the content pipeline |
 | `09-known-bugs.md` | Code review of `roxi/` — 22 defects including stage-observability and multi-tenancy sections, severity-ranked, with a fix order |
 | `10-how-the-agents-work.html` | How all eleven components behave in the code: call mechanics, the four pipelines, what is model and what is not |
-| `11-multi-customer-operations.md` | Turning Roxi into a multi-customer service: separation, rules as data, the customer UI, onboarding, eight build stages |
+| `11-multi-customer-operations.md` | Turning Roxi into a multi-customer service: separation, rules as data, seven customer screens including the setup interview, onboarding, eight build stages |
+| `12-fix-these-two-first.md` | The two blocking bugs in plain language, with the exact changes. **Start here.** |
 
 ## The load-bearing decisions
 
@@ -47,14 +48,14 @@ Phase 4 onward assumes it passed.
 
 - Codebase is well ahead of this documentation: agents, collectors, Dispatcher, Responder,
   content pipeline, Supabase support, and a Next.js approval UI all exist.
-- **The eval harness has never been run.** `evals/results/` and `tests/` are empty, so Phase 0
-  exit criteria are unverified.
-- 22 known defects logged in `09-known-bugs.md`, two of them blocking today: stale model IDs break
-  every Sonnet call, and the job-board collector silently returns one item per query. A further
-  seven are latent multi-tenancy issues that activate at customer two.
-- **Seven of the eleven ways an item can be dropped leave no database record** (M7). Fix that
-  before the dedupe bugs, or their effect cannot be measured.
-- **Next action: fix the model IDs, then run the evals to establish a scoring baseline.**
+- Twenty defects were fixed on 4 September (`12-bug-fixes.md`), which introduced seven new ones
+  that were then also fixed.
+- **The blocking bug is still open.** The model names in `llm.py` are still wrong, are absent from
+  both the fix log and its open-items table, and now carry a comment falsely claiming they were
+  verified. Nothing produces output until this is fixed — `13-pending-bugs.md` P1.
+- **The eval harness has still never been run.** `evals/results/` and `tests/` are empty, so none
+  of the twenty fixes has a before-and-after measurement.
+- **Next action: fix the model names, then run the evals and commit the result as a baseline.**
 
 ## Source discipline
 

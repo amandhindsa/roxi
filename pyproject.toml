@@ -17,6 +17,10 @@ dependencies = [
     "pyyaml>=6.0",
     "anyio>=4.0",
     "twilio>=9.0",
+    "apscheduler>=3.10",
+    "PyJWT>=2.8",
+    "sqlalchemy>=2.0",
+    "pytz>=2024.1",
 ]
 
 [tool.setuptools.packages.find]
@@ -30,6 +34,7 @@ roxi = "roxi.cli:cli"
 reddit = ["praw>=7.7"]
 supabase = ["supabase>=2.0"]
 rate-limit = ["slowapi>=0.1"]
+scheduler = ["apscheduler>=3.10", "sqlalchemy>=2.0", "pytz>=2024.1"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio",

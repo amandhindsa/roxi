@@ -10,4 +10,8 @@ twilio>=9.0
 praw>=7.7
 supabase>=2.0
 slowapi>=0.1
+apscheduler>=3.10
+PyJWT>=2.8
+sqlalchemy>=2.0
+pytz>=2024.1
 -e .

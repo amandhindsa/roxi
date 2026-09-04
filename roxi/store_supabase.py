@@ -184,12 +184,14 @@ def get_stats(vertical_id: str, days: int = 30) -> dict:
 
 # ── Runs ─────────────────────────────────────────────────────────────────────
 
-def start_run(vertical_id: str, org_id: str | None = None) -> str:
+def start_run(vertical_id: str, org_id: str | None = None,
+              subscription_id: str | None = None) -> str:
     run_id = str(uuid.uuid4())
     _get_client().table("runs").insert({
         "id": run_id,
         "vertical_id": vertical_id,
         "org_id": org_id,
+        "subscription_id": subscription_id,
         "started_at": _now(),
     }).execute()
     return run_id
@@ -522,3 +524,293 @@ def _row_to_lead(row: dict) -> Lead:
         contact_email=row.get("contact_email"),
         created_at=row["created_at"],
     )
+
+
+# ── Organisations ─────────────────────────────────────────────────────────────
+
+def create_org(name: str, slug: str) -> dict:
+    row = {"id": str(uuid.uuid4()), "name": name, "slug": slug, "created_at": _now()}
+    _get_client().table("organisations").insert(row).execute()
+    return row
+
+def get_org(org_id: str) -> dict | None:
+    r = _get_client().table("organisations").select("*").eq("id", org_id).maybe_single().execute()
+    return dict(r.data) if r.data else None
+
+def get_org_by_slug(slug: str) -> dict | None:
+    r = _get_client().table("organisations").select("*").eq("slug", slug).maybe_single().execute()
+    return dict(r.data) if r.data else None
+
+def list_orgs() -> list[dict]:
+    r = _get_client().table("organisations").select("*").order("created_at").execute()
+    return [dict(x) for x in r.data]
+
+# ── Members ───────────────────────────────────────────────────────────────────
+
+def add_member(org_id: str, user_id: str, email: str, role: str) -> dict:
+    row = {"id": str(uuid.uuid4()), "org_id": org_id, "user_id": user_id,
+           "email": email, "role": role, "invited_at": _now()}
+    _get_client().table("members").insert(row).execute()
+    return row
+
+def get_member(org_id: str, user_id: str) -> dict | None:
+    r = (_get_client().table("members").select("*")
+         .eq("org_id", org_id).eq("user_id", user_id).maybe_single().execute())
+    return dict(r.data) if r.data else None
+
+def get_member_by_email(org_id: str, email: str) -> dict | None:
+    r = (_get_client().table("members").select("*")
+         .eq("org_id", org_id).eq("email", email).maybe_single().execute())
+    return dict(r.data) if r.data else None
+
+def list_members(org_id: str) -> list[dict]:
+    r = _get_client().table("members").select("*").eq("org_id", org_id).execute()
+    return [dict(x) for x in r.data]
+
+def update_member_role(org_id: str, user_id: str, role: str) -> None:
+    (_get_client().table("members").update({"role": role})
+     .eq("org_id", org_id).eq("user_id", user_id).execute())
+
+def remove_member(org_id: str, user_id: str) -> bool:
+    r = (_get_client().table("members").delete()
+         .eq("org_id", org_id).eq("user_id", user_id).execute())
+    return bool(r.data)
+
+def get_user_org(user_id: str) -> dict | None:
+    r = _get_client().table("members").select("org_id").eq("user_id", user_id).limit(1).execute()
+    if not r.data:
+        return None
+    org_id = r.data[0]["org_id"]
+    return get_org(org_id)
+
+# ── Subscriptions ─────────────────────────────────────────────────────────────
+
+def create_subscription(org_id: str, vertical_id: str, **kwargs) -> dict:
+    row = {
+        "id": str(uuid.uuid4()),
+        "org_id": org_id,
+        "vertical_id": vertical_id,
+        "rules_version_id": kwargs.get("rules_version_id"),
+        "status": kwargs.get("status", "active"),
+        "paused": kwargs.get("paused", False),
+        "daily_research_budget": kwargs.get("daily_research_budget", 15),
+        "spend_ceiling_usd": kwargs.get("spend_ceiling_usd", 5.0),
+        "qualify_threshold": kwargs.get("qualify_threshold", 70),
+        "delivery_hour": kwargs.get("delivery_hour", 8),
+        "delivery_timezone": kwargs.get("delivery_timezone", "America/Toronto"),
+        "created_at": _now(),
+    }
+    _get_client().table("subscriptions").insert(row).execute()
+    return row
+
+def get_subscription(subscription_id: str) -> dict | None:
+    r = _get_client().table("subscriptions").select("*").eq("id", subscription_id).maybe_single().execute()
+    return dict(r.data) if r.data else None
+
+def list_subscriptions(org_id: str) -> list[dict]:
+    r = _get_client().table("subscriptions").select("*").eq("org_id", org_id).order("created_at").execute()
+    return [dict(x) for x in r.data]
+
+def update_subscription(subscription_id: str, **kwargs) -> None:
+    _get_client().table("subscriptions").update(kwargs).eq("id", subscription_id).execute()
+
+def list_active_subscriptions() -> list[dict]:
+    r = (_get_client().table("subscriptions").select("*")
+         .eq("status", "active").eq("paused", False).execute())
+    return [dict(x) for x in r.data]
+
+# ── Vertical rules ────────────────────────────────────────────────────────────
+
+def save_vertical_rules(subscription_id: str, rules_json: str, icp_json: str,
+                        product_brief: str, summary: str) -> dict:
+    latest = get_latest_rules(subscription_id)
+    version = (latest["version"] + 1) if latest else 1
+    row = {
+        "id": str(uuid.uuid4()),
+        "subscription_id": subscription_id,
+        "version": version,
+        "rules_json": rules_json,
+        "icp_json": icp_json,
+        "product_brief": product_brief,
+        "summary": summary,
+        "created_at": _now(),
+    }
+    _get_client().table("vertical_rules").insert(row).execute()
+    return row
+
+def get_vertical_rules(rules_version_id: str) -> dict | None:
+    r = _get_client().table("vertical_rules").select("*").eq("id", rules_version_id).maybe_single().execute()
+    return dict(r.data) if r.data else None
+
+def list_vertical_rules(subscription_id: str) -> list[dict]:
+    r = (_get_client().table("vertical_rules").select("*")
+         .eq("subscription_id", subscription_id).order("version", desc=True).execute())
+    return [dict(x) for x in r.data]
+
+def get_latest_rules(subscription_id: str) -> dict | None:
+    r = (_get_client().table("vertical_rules").select("*")
+         .eq("subscription_id", subscription_id).order("version", desc=True).limit(1).execute())
+    return dict(r.data[0]) if r.data else None
+
+# ── Setup sessions ────────────────────────────────────────────────────────────
+
+def create_setup_session(org_id: str) -> dict:
+    now = _now()
+    row = {"id": str(uuid.uuid4()), "org_id": org_id, "state": "active",
+           "messages_json": "[]", "created_at": now, "updated_at": now}
+    _get_client().table("setup_sessions").insert(row).execute()
+    return row
+
+def get_setup_session(session_id: str) -> dict | None:
+    r = _get_client().table("setup_sessions").select("*").eq("id", session_id).maybe_single().execute()
+    return dict(r.data) if r.data else None
+
+def update_setup_session(session_id: str, messages_json: str, state: str = "active",
+                         subscription_id: str | None = None) -> None:
+    payload: dict = {"messages_json": messages_json, "state": state, "updated_at": _now()}
+    if subscription_id is not None:
+        payload["subscription_id"] = subscription_id
+    _get_client().table("setup_sessions").update(payload).eq("id", session_id).execute()
+
+# ── Source health ─────────────────────────────────────────────────────────────
+
+def record_source_health(subscription_id: str, source_name: str, count: int) -> None:
+    existing = (_get_client().table("source_health").select("*")
+                .eq("subscription_id", subscription_id).eq("source_name", source_name)
+                .maybe_single().execute())
+    now = _now()
+    if existing.data:
+        consecutive = 0 if count > 0 else (existing.data["consecutive_empty"] + 1)
+        (_get_client().table("source_health").update({
+            "last_run_at": now, "last_count": count, "consecutive_empty": consecutive,
+        }).eq("subscription_id", subscription_id).eq("source_name", source_name).execute())
+    else:
+        _get_client().table("source_health").insert({
+            "id": str(uuid.uuid4()), "subscription_id": subscription_id,
+            "source_name": source_name, "last_run_at": now, "last_count": count,
+            "consecutive_empty": 0 if count > 0 else 1, "created_at": now,
+        }).execute()
+
+def get_source_health(subscription_id: str) -> list[dict]:
+    r = _get_client().table("source_health").select("*").eq("subscription_id", subscription_id).execute()
+    return [dict(x) for x in r.data]
+
+def get_quiet_sources(threshold: int = 3) -> list[dict]:
+    r = (_get_client().table("source_health").select("*, subscriptions(org_id, vertical_id)")
+         .gte("consecutive_empty", threshold).execute())
+    return [dict(x) for x in r.data]
+
+# ── Scheduled runs ────────────────────────────────────────────────────────────
+
+def schedule_run(subscription_id: str, scheduled_at: str) -> dict:
+    row = {"id": str(uuid.uuid4()), "subscription_id": subscription_id,
+           "scheduled_at": scheduled_at, "status": "pending", "created_at": _now()}
+    _get_client().table("scheduled_runs").insert(row).execute()
+    return row
+
+def claim_scheduled_run(scheduled_run_id: str) -> bool:
+    # Only claim if currently pending (simple optimistic update)
+    r = (_get_client().table("scheduled_runs")
+         .update({"status": "running"})
+         .eq("id", scheduled_run_id).eq("status", "pending").execute())
+    return bool(r.data)
+
+def complete_scheduled_run(scheduled_run_id: str, run_id: str, status: str = "done") -> None:
+    (_get_client().table("scheduled_runs")
+     .update({"status": status, "run_id": run_id})
+     .eq("id", scheduled_run_id).execute())
+
+def list_scheduled_runs(subscription_id: str, limit: int = 20) -> list[dict]:
+    r = (_get_client().table("scheduled_runs").select("*")
+         .eq("subscription_id", subscription_id)
+         .order("scheduled_at", desc=True).limit(limit).execute())
+    return [dict(x) for x in r.data]
+
+# ── Lead feedback ─────────────────────────────────────────────────────────────
+
+def add_lead_feedback(lead_id: str, reason: str, note: str | None = None) -> dict:
+    row = {"id": str(uuid.uuid4()), "lead_id": lead_id, "reason": reason,
+           "note": note, "created_at": _now()}
+    _get_client().table("lead_feedback").insert(row).execute()
+    return row
+
+def list_lead_feedback(lead_id: str) -> list[dict]:
+    r = _get_client().table("lead_feedback").select("*").eq("lead_id", lead_id).execute()
+    return [dict(x) for x in r.data]
+
+def get_rejection_reasons(subscription_id: str, days: int = 30) -> list[dict]:
+    from datetime import timedelta, timezone as _tz
+    cutoff = (datetime.now(_tz.utc) - timedelta(days=days)).isoformat()
+    r = (_get_client().table("leads").select("id")
+         .eq("subscription_id", subscription_id).gte("created_at", cutoff)
+         .in_("status", ["rejected"]).execute())
+    lead_ids = [x["id"] for x in r.data]
+    if not lead_ids:
+        return []
+    fb = _get_client().table("lead_feedback").select("reason").in_("lead_id", lead_ids).execute()
+    counts: dict[str, int] = {}
+    for row in fb.data:
+        counts[row["reason"]] = counts.get(row["reason"], 0) + 1
+    return [{"reason": k, "count": v} for k, v in sorted(counts.items(), key=lambda x: -x[1])]
+
+# ── Spend ceiling ─────────────────────────────────────────────────────────────
+
+def get_subscription_spend_today(subscription_id: str) -> float:
+    from datetime import date, timezone as _tz
+    today = date.today().isoformat()
+    r = (_get_client().table("runs").select("id")
+         .eq("subscription_id", subscription_id)
+         .gte("started_at", today).execute())
+    run_ids = [x["id"] for x in r.data]
+    if not run_ids:
+        return 0.0
+    calls = _get_client().table("llm_calls").select("cost_usd").in_("run_id", run_ids).execute()
+    return float(sum(x["cost_usd"] or 0 for x in calls.data))
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+def get_reply_rates_by_score_band(subscription_id: str, days: int = 30) -> list[dict]:
+    from datetime import timedelta, timezone as _tz
+    cutoff = (datetime.now(_tz.utc) - timedelta(days=days)).isoformat()
+    r = (_get_client().table("leads").select("scored_json, status")
+         .eq("subscription_id", subscription_id).gte("created_at", cutoff).execute())
+    bands = {"0-50": {"total": 0, "replied": 0},
+             "50-60": {"total": 0, "replied": 0},
+             "60-70": {"total": 0, "replied": 0},
+             "70-80": {"total": 0, "replied": 0},
+             "80-90": {"total": 0, "replied": 0},
+             "90+":   {"total": 0, "replied": 0}}
+    for row in r.data:
+        scored = json.loads(row["scored_json"])
+        score = scored.get("score", 0)
+        band = ("0-50" if score < 50 else "50-60" if score < 60 else
+                "60-70" if score < 70 else "70-80" if score < 80 else
+                "80-90" if score < 90 else "90+")
+        bands[band]["total"] += 1
+        if row["status"] == "replied":
+            bands[band]["replied"] += 1
+    return [{"band": k, "total": v["total"], "replied": v["replied"],
+             "rate": round(v["replied"] / v["total"], 3) if v["total"] else None}
+            for k, v in bands.items()]
+
+def get_subscription_stats(subscription_id: str, days: int = 30) -> dict:
+    from datetime import timedelta, timezone as _tz
+    cutoff = (datetime.now(_tz.utc) - timedelta(days=days)).isoformat()
+    r = (_get_client().table("leads").select("status")
+         .eq("subscription_id", subscription_id).gte("created_at", cutoff).execute())
+    status_counts: dict[str, int] = {}
+    for row in r.data:
+        status_counts[row["status"]] = status_counts.get(row["status"], 0) + 1
+    total = sum(status_counts.values())
+    replied = status_counts.get("replied", 0)
+    approved = status_counts.get("approved", 0)
+    return {
+        "subscription_id": subscription_id,
+        "days": days,
+        "total_leads": total,
+        "leads": status_counts,
+        "reply_rate": round(replied / total, 3) if total else None,
+        "approval_rate": round(approved / total, 3) if total else None,
+    }
+
+

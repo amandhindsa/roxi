@@ -1,53 +1,83 @@
-import { LeadList } from "@/components/LeadList";
+"use client"
 
-export const revalidate = 0;
+import { useEffect, useState, useCallback } from "react"
+import { LeadList } from "@/components/LeadList"
+import { SubscriptionSelector } from "@/components/SubscriptionSelector"
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<{ status?: string; vertical?: string }>;
-}) {
-  const { status: rawStatus, vertical: rawVertical } = await searchParams;
-  const status = rawStatus || "pending";
-  const vertical = rawVertical || process.env.NEXT_PUBLIC_VERTICAL || "hauler_ai";
+const STATUS_TABS = ["pending", "approved", "rejected", "sent", "replied"] as const
+type Status = typeof STATUS_TABS[number]
 
-  const statuses = ["pending", "approved", "rejected", "sent", "replied"];
+export default function LeadsPage() {
+  const [subscriptionId, setSubscriptionId] = useState("")
+  const [status, setStatus] = useState<Status>("pending")
+  const [focusedIndex, setFocusedIndex] = useState(0)
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
+
+    if (e.key === "j") setFocusedIndex(i => i + 1)
+    if (e.key === "k") setFocusedIndex(i => Math.max(0, i - 1))
+    if (e.key === "a") {
+      // approve focused — dispatched via a custom event
+      window.dispatchEvent(new CustomEvent("roxi:approve", { detail: { index: focusedIndex } }))
+    }
+    if (e.key === "r") {
+      window.dispatchEvent(new CustomEvent("roxi:reject", { detail: { index: focusedIndex } }))
+    }
+    if (e.key === "e") {
+      window.dispatchEvent(new CustomEvent("roxi:expand", { detail: { index: focusedIndex } }))
+    }
+  }, [focusedIndex])
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [handleKeyDown])
 
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-medium tracking-tight">{vertical.replace(/_/g, " ")}</h1>
-          <p className="text-ink-soft text-sm font-mono mt-1">
-            Leads that matched ICP — approve to queue for send
-          </p>
-        </div>
-        <a
-          href="/api/stats"
-          className="text-xs font-mono text-ink-soft border border-rule px-3 py-1.5 hover:border-ink transition-colors"
-        >
-          stats
-        </a>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="font-mono font-bold text-lg text-ink">Lead queue</h1>
+        <SubscriptionSelector value={subscriptionId} onChange={setSubscriptionId} />
       </div>
 
       {/* Status tabs */}
-      <div className="flex gap-1 mb-6 border-b border-rule">
-        {statuses.map((s) => (
-          <a
-            key={s}
-            href={`?status=${s}&vertical=${vertical}`}
-            className={`px-3 py-2 text-sm font-mono -mb-px border-b-2 transition-colors ${
-              s === status
-                ? "border-ink text-ink"
+      <div className="flex gap-0 border-b border-rule mb-6">
+        {STATUS_TABS.map(tab => (
+          <button
+            key={tab}
+            onClick={() => { setStatus(tab); setFocusedIndex(0) }}
+            className={`px-4 py-2 text-xs font-mono border-b-2 transition-colors ${
+              status === tab
+                ? "border-teal text-teal font-bold"
                 : "border-transparent text-ink-soft hover:text-ink"
             }`}
           >
-            {s}
-          </a>
+            {tab}
+          </button>
         ))}
       </div>
 
-      <LeadList status={status} vertical={vertical} />
+      {subscriptionId ? (
+        <LeadList
+          status={status}
+          subscriptionId={subscriptionId}
+          focusedIndex={focusedIndex}
+          onFocusChange={setFocusedIndex}
+        />
+      ) : (
+        <div className="border border-dashed border-rule p-8 text-center">
+          <p className="text-ink-soft font-mono text-sm">Select a subscription to view leads</p>
+        </div>
+      )}
+
+      {/* Keyboard hint */}
+      <div className="mt-8 pt-4 border-t border-rule">
+        <p className="text-xs font-mono text-ink-soft text-center">
+          a approve · r reject · j/k navigate · e expand
+        </p>
+      </div>
     </div>
-  );
+  )
 }

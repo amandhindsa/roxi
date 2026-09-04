@@ -19,5 +19,15 @@ export async function PATCH(
     return NextResponse.json({ error: "upstream error" }, { status: res.status });
   }
 
-  return NextResponse.json(await res.json());
+  const result = await res.json();
+
+  if (body.status === "rejected" && body.rejection_reason) {
+    await fetch(`${ROXI_API}/api/leads/${id}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome: "rejected", reason: body.rejection_reason, note: body.rejection_note }),
+    }).catch(() => {});
+  }
+
+  return NextResponse.json(result);
 }

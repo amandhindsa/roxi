@@ -1,0 +1,2 @@
+[    1737ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://roxi-ktsk398z4-supermenlab.vercel.app/favicon.ico:0
+[    1872ms] [ERROR] Failed to load resource: the server responded with a status of 500 () @ https://roxi-ktsk398z4-supermenlab.vercel.app/api/leads?vertical=hauler_ai&status=pending&limit=50:0

@@ -1,108 +1,96 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import { LeadCard } from "./LeadCard";
+import { useEffect, useState } from "react"
+import { LeadCard } from "./LeadCard"
+import type { LeadDetail } from "@/lib/api"
 
-type Lead = {
-  id: string;
-  vertical_id: string;
-  signal: {
-    company: string;
-    location: string | null;
-    signal_type: string;
-    evidence: string;
-    fleet_size: number | null;
-  };
-  scored: {
-    score: number;
-    rules_fired: { rule: string; delta: number }[];
-    disqualified_by: string | null;
-  };
-  research: {
-    company_summary: string;
-    fleet_estimate: string | null;
-    operating_lanes: string[];
-    current_stack_guess: string | null;
-    decision_maker_title: string | null;
-    hooks: string[];
-    confidence: "high" | "medium" | "low";
-  } | null;
-  draft: {
-    why_now: string;
-    subject: string;
-    body: string;
-    hook_used: string;
-  } | null;
-  status: string;
-  created_at: string;
-};
+interface Props {
+  status: string
+  subscriptionId: string
+  focusedIndex: number
+  onFocusChange: (index: number) => void
+}
 
-export function LeadList({
-  status,
-  vertical,
-}: {
-  status: string;
-  vertical: string;
-}) {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
+export function LeadList({ status, subscriptionId, focusedIndex, onFocusChange }: Props) {
+  const [leads, setLeads] = useState<LeadDetail[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true);
+  useEffect(() => {
+    if (!subscriptionId) return
+    setLoading(true)
+    setError(null)
+
+    const params = new URLSearchParams({ status })
+    if (subscriptionId) params.set("subscription_id", subscriptionId)
+
+    fetch(`/api/leads?${params}`)
+      .then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then(data => {
+        setLeads(Array.isArray(data) ? data : [])
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [status, subscriptionId])
+
+  const handleDecision = async (
+    id: string,
+    decision: "approved" | "rejected",
+    rejectionReason?: string,
+    rejectionNote?: string
+  ) => {
     try {
-      const res = await fetch(
-        `/api/leads?vertical=${vertical}&status=${status}&limit=50`,
-        { cache: "no-store" }
-      );
-      const data = await res.json();
-      setLeads(Array.isArray(data) ? data : []);
-    } catch {
-      setLeads([]);
-    } finally {
-      setLoading(false);
+      const body: Record<string, unknown> = { status: decision }
+      if (rejectionReason) body.rejection_reason = rejectionReason
+      if (rejectionNote) body.rejection_note = rejectionNote
+
+      await fetch(`/api/leads/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
+      setLeads(prev => prev.filter(l => l.id !== id))
+    } catch (err) {
+      console.error("decision error", err)
     }
-  };
-
-  useEffect(() => { load(); }, [status, vertical]);
-
-  const handleDecision = async (id: string, decision: "approved" | "rejected") => {
-    await fetch(`/api/leads/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: decision }),
-    });
-    setLeads((prev) => prev.filter((l) => l.id !== id));
-  };
+  }
 
   if (loading) {
+    return <p className="text-ink-soft font-mono text-sm py-8">loading…</p>
+  }
+
+  if (error) {
     return (
-      <div className="text-ink-soft font-mono text-sm py-12 text-center">
-        Loading…
+      <div className="border border-dashed border-rule p-8 text-center">
+        <p className="text-amber font-mono text-sm">{error}</p>
       </div>
-    );
+    )
   }
 
   if (leads.length === 0) {
     return (
-      <div className="text-ink-soft font-mono text-sm py-12 text-center border border-dashed border-rule">
-        No {status} leads.
+      <div className="border border-dashed border-rule p-8 text-center">
+        <p className="text-ink-soft font-mono text-sm">No leads in {status}</p>
       </div>
-    );
+    )
   }
 
   return (
-    <div className="space-y-4">
-      <p className="text-ink-soft font-mono text-xs">
-        {leads.length} lead{leads.length !== 1 ? "s" : ""}
-      </p>
-      {leads.map((lead) => (
-        <LeadCard
-          key={lead.id}
-          lead={lead}
-          showActions={status === "pending"}
-          onDecision={handleDecision}
-        />
+    <div className="space-y-3">
+      {leads.map((lead, i) => (
+        <div key={lead.id} onClick={() => onFocusChange(i)}>
+          <LeadCard
+            lead={lead}
+            showActions={status === "pending"}
+            focused={focusedIndex === i}
+            onDecision={handleDecision}
+          />
+        </div>
       ))}
     </div>
-  );
+  )
 }
