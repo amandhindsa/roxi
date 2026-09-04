@@ -40,6 +40,11 @@ hooks should be specific, verifiable facts a salesperson can reference in an ema
 
 from roxi.llm import COST_PER_MILLION as _COST_PER_MILLION
 
+# Hash of the template text — changes automatically when the prompt is edited.
+# Per-vertical product_brief is NOT included here; it varies per call and is
+# captured implicitly via input_hash (which hashes the full per-call user message).
+_SEARCH_PROMPT_VERSION = hashlib.sha256(_SEARCH_SYSTEM.encode()).hexdigest()[:16]
+
 
 def research_company(scored: ScoredSignal, vertical: VerticalConfig, run_id: str | None = None) -> ResearchBrief | None:
     client = _get_client()
@@ -52,7 +57,6 @@ def research_company(scored: ScoredSignal, vertical: VerticalConfig, run_id: str
         f"Find fleet size, operating lanes, current software stack, and decision-maker title."
     )
 
-    _prompt_version = hashlib.sha256(_SEARCH_SYSTEM.encode()).hexdigest()[:16]
     _input_hash = hashlib.sha256(search_user.encode()).hexdigest()[:16]
 
     try:
@@ -85,7 +89,7 @@ def research_company(scored: ScoredSignal, vertical: VerticalConfig, run_id: str
             latency_ms=latency_ms,
             lead_id=None,
             run_id=run_id,
-            prompt_version=_prompt_version,
+            prompt_version=_SEARCH_PROMPT_VERSION,
             input_hash=_input_hash,
             outcome="ok" if has_text else "empty",
         )

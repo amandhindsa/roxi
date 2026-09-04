@@ -11,7 +11,7 @@ from roxi.collectors import job_boards, registry, reddit
 from roxi.config import VerticalConfig
 from roxi.dedupe import dedupe_company, dedupe_exact, signal_key
 from roxi.delivery import deliver
-from roxi.models import Lead, RawItem
+from roxi.models import Lead, RawItem, Signal
 from roxi import store
 from roxi.telemetry import emit
 
@@ -45,19 +45,21 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
     raw_items = _collect_all(vertical, run_id=run_id)
     log.info("collected %d raw items (run_id=%s)", len(raw_items), run_id)
 
-    signals = []
-    for i, raw in enumerate(raw_items):
+    # Each tuple carries (raw_idx, raw, signal/scored) so item_seq is the original
+    # position in raw_items throughout all stages — enabling end-to-end stage tracing.
+    signals: list[tuple[int, RawItem, object]] = []
+    for raw_idx, raw in enumerate(raw_items):
         sig = extract(raw, vertical, run_id=run_id)
         if sig is not None:
-            signals.append((raw, sig))
+            signals.append((raw_idx, raw, sig))
             store.log_stage_output(
-                run_id=run_id, item_seq=i, stage="extract", status="passed",
+                run_id=run_id, item_seq=raw_idx, stage="extract", status="passed",
                 payload_json=sig.model_dump_json(),
                 source_url=raw.source_url, company=sig.company,
             )
         else:
             store.log_stage_output(
-                run_id=run_id, item_seq=i, stage="extract", status="dropped",
+                run_id=run_id, item_seq=raw_idx, stage="extract", status="dropped",
                 drop_reason="extraction_failed",
                 drop_detail=raw.title[:120] if raw.title else None,
                 source_url=raw.source_url,
@@ -69,17 +71,17 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
     recent_names = store.recent_company_names(days=30)
 
     # Exact dedupe first (cheap — no LLM calls)
-    signal_objects = [s for _, s in signals]
+    signal_objects = [s for _, _, s in signals]
     exact_deduped = dedupe_exact(signal_objects, seen_keys)
     exact_set = {signal_key(s) for s in exact_deduped}
 
-    survivors = []
-    for i, (r, s) in enumerate(signals):
+    survivors: list[tuple[int, RawItem, object]] = []
+    for raw_idx, r, s in signals:
         if signal_key(s) in exact_set:
-            survivors.append((r, s))
+            survivors.append((raw_idx, r, s))
         else:
             store.log_stage_output(
-                run_id=run_id, item_seq=i, stage="dedupe", status="dropped",
+                run_id=run_id, item_seq=raw_idx, stage="dedupe", status="dropped",
                 drop_reason="duplicate_exact",
                 source_url=r.source_url, company=s.company,
             )
@@ -87,36 +89,36 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
     log.info("%d signals after exact dedupe (run_id=%s)", len(survivors), run_id)
 
     # Score before company dedupe so the best signal per company wins (H3)
-    scored_pairs = []
-    for i, (raw, sig) in enumerate(survivors):
+    scored_pairs: list[tuple[int, RawItem, object]] = []
+    for raw_idx, raw, sig in survivors:
         scored = score(sig, vertical, run_id=run_id)
         if scored is None:
             store.log_stage_output(
-                run_id=run_id, item_seq=i, stage="score", status="dropped",
+                run_id=run_id, item_seq=raw_idx, stage="score", status="dropped",
                 drop_reason="scoring_failed",
                 source_url=raw.source_url, company=sig.company,
             )
             continue
         store.log_stage_output(
-            run_id=run_id, item_seq=i, stage="score", status="passed",
+            run_id=run_id, item_seq=raw_idx, stage="score", status="passed",
             payload_json=scored.model_dump_json(),
             source_url=raw.source_url, company=scored.company,
         )
-        scored_pairs.append((raw, scored))
+        scored_pairs.append((raw_idx, raw, scored))
 
     # Sort highest score first, then company dedupe keeps the winner
-    scored_pairs.sort(key=lambda x: x[1].score, reverse=True)
-    scored_signals = [s for _, s in scored_pairs]
+    scored_pairs.sort(key=lambda x: x[2].score, reverse=True)
+    scored_signals = [s for _, _, s in scored_pairs]
     company_deduped = dedupe_company(scored_signals, recent_names)
     company_set = {signal_key(s) for s in company_deduped}
 
-    deduped_pairs = []
-    for i, (r, s) in enumerate(scored_pairs):
+    deduped_pairs: list[tuple[int, RawItem, object]] = []
+    for raw_idx, r, s in scored_pairs:
         if signal_key(s) in company_set:
-            deduped_pairs.append((r, s))
+            deduped_pairs.append((raw_idx, r, s))
         else:
             store.log_stage_output(
-                run_id=run_id, item_seq=i, stage="dedupe", status="dropped",
+                run_id=run_id, item_seq=raw_idx, stage="dedupe", status="dropped",
                 drop_reason="duplicate_fuzzy",
                 source_url=r.source_url, company=s.company,
             )
@@ -124,11 +126,11 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
 
     log.info("%d signals after company dedupe (run_id=%s)", len(scored_pairs), run_id)
 
-    qualified = []
-    for i, (r, s) in enumerate(scored_pairs):
+    qualified: list[tuple[int, RawItem, object]] = []
+    for raw_idx, r, s in scored_pairs:
         if s.disqualified_by:
             store.log_stage_output(
-                run_id=run_id, item_seq=i, stage="score", status="dropped",
+                run_id=run_id, item_seq=raw_idx, stage="score", status="dropped",
                 drop_reason="disqualified",
                 drop_detail=s.disqualified_by,
                 payload_json=s.model_dump_json(),
@@ -136,19 +138,19 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
             )
         elif s.score < vertical.qualify_threshold:
             store.log_stage_output(
-                run_id=run_id, item_seq=i, stage="score", status="dropped",
+                run_id=run_id, item_seq=raw_idx, stage="score", status="dropped",
                 drop_reason="below_threshold",
                 drop_detail=f"score={s.score} threshold={vertical.qualify_threshold}",
                 payload_json=s.model_dump_json(),
                 source_url=r.source_url, company=s.company,
             )
         else:
-            qualified.append((r, s))
+            qualified.append((raw_idx, r, s))
 
-    # Log items cut by the budget cap
-    for i, (r, s) in enumerate(qualified[vertical.daily_research_budget:]):
+    # Log items cut by the budget cap — raw_idx still comes from the tuple.
+    for raw_idx, r, s in qualified[vertical.daily_research_budget:]:
         store.log_stage_output(
-            run_id=run_id, item_seq=i, stage="score", status="dropped",
+            run_id=run_id, item_seq=raw_idx, stage="score", status="dropped",
             drop_reason="over_budget",
             source_url=r.source_url, company=s.company,
         )
@@ -160,7 +162,7 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
     total_cost = 0.0
     leads: list[Lead] = []
 
-    for seq, (raw, scored) in enumerate(qualified):
+    for raw_idx, raw, scored in qualified:
         try:
             research = research_company(scored, vertical, run_id=run_id)
             if research is None:
@@ -168,14 +170,14 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
                 emit("lead.error", run_id=run_id, vertical_id=vertical.vertical_id,
                      data={"company": scored.company, "error": "research returned None"}, level="warning")
                 store.log_stage_output(
-                    run_id=run_id, item_seq=seq, stage="research", status="dropped",
+                    run_id=run_id, item_seq=raw_idx, stage="research", status="dropped",
                     drop_reason="research_empty",
                     source_url=raw.source_url, company=scored.company,
                 )
                 continue
 
             store.log_stage_output(
-                run_id=run_id, item_seq=seq, stage="research", status="passed",
+                run_id=run_id, item_seq=raw_idx, stage="research", status="passed",
                 payload_json=research.model_dump_json(),
                 source_url=raw.source_url, company=scored.company,
             )
@@ -184,18 +186,16 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
             if draft is None:
                 log.warning("pipeline: no draft for %r (run_id=%s) — skipping", scored.company, run_id)
                 store.log_stage_output(
-                    run_id=run_id, item_seq=seq, stage="draft", status="dropped",
+                    run_id=run_id, item_seq=raw_idx, stage="draft", status="dropped",
                     drop_reason="draft_failed",
                     source_url=raw.source_url, company=scored.company,
                 )
                 continue
             store.log_stage_output(
-                run_id=run_id, item_seq=seq, stage="draft", status="passed",
+                run_id=run_id, item_seq=raw_idx, stage="draft", status="passed",
                 source_url=raw.source_url, company=scored.company,
             )
 
-            # signal = the pre-scoring Signal fields; scored = the full ScoredSignal
-            from roxi.models import Signal
             base_signal = Signal(**{k: v for k, v in scored.model_dump().items() if k in Signal.model_fields})
             lead = Lead(
                 raw=raw,

@@ -47,7 +47,8 @@ def init_db(path: str | None = None) -> None:
 
 # ── Leads ────────────────────────────────────────────────────────────────────
 
-def save(lead: Lead, vertical_id: str) -> None:
+def save(lead: Lead, vertical_id: str) -> bool:
+    """Persist lead. Returns True if inserted, False on dedupe_key collision."""
     sb = _get_client()
     result = sb.table("leads").upsert({
         "id": lead.id,
@@ -64,12 +65,13 @@ def save(lead: Lead, vertical_id: str) -> None:
 
     if not result.data:
         log.warning("store.save: dedupe_key collision for lead %s — not persisted", lead.id)
-        return
+        return False
 
     sb.table("dedupe_keys").upsert({
         "key": lead.dedupe_key,
         "created_at": _now(),
     }, on_conflict="key", ignore_duplicates=True).execute()
+    return True
 
 
 def update_status(lead_id: str, status: str) -> None:
@@ -302,13 +304,17 @@ def list_events(
 
 def daily_costs(days: int = 30, vertical_id: str | None = None) -> list[dict]:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    result = (
+    # Join llm_calls → runs to filter by vertical_id, mirroring the SQLite JOIN.
+    # PostgREST embedded resource syntax: select from llm_calls, embed runs.
+    q = (
         _get_client()
         .table("llm_calls")
-        .select("cost_usd, created_at")
+        .select("cost_usd, created_at, runs(vertical_id)")
         .gte("created_at", cutoff)
-        .execute()
     )
+    if vertical_id:
+        q = q.eq("runs.vertical_id", vertical_id)
+    result = q.execute()
     by_day: dict[str, dict] = {}
     for r in result.data:
         day = r["created_at"][:10]
@@ -477,6 +483,8 @@ def _row_to_api_dict(row: dict) -> dict:
         "vertical_id": row["vertical_id"],
         "status": row["status"],
         "created_at": row["created_at"],
+        "raw": json.loads(row["raw_json"]) if row.get("raw_json") else None,
+        "signal": json.loads(row["signal_json"]) if row.get("signal_json") else None,
         "scored": json.loads(row["scored_json"]) if row.get("scored_json") else {},
         "draft": json.loads(row["draft_json"]) if row.get("draft_json") else None,
         "research": json.loads(row["research_json"]) if row.get("research_json") else None,

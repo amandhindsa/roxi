@@ -34,9 +34,10 @@ def _fuzzy_match(a: str, b: str) -> bool:
     ca, cb = _canonical(a), _canonical(b)
     if not ca or not cb:
         return False
-    # First-token match only when both canonicals have >1 token — prevents "Pacific Freight"
-    # collapsing with "Pacific Logistics" after suffixes are stripped.
     ca_tokens, cb_tokens = ca.split(), cb.split()
+    # First-token shortcut: only when both sides have >1 meaningful token after stripping.
+    # Single-token canonicals (e.g. both "Pacific Freight" and "Pacific Logistics" → "pacific")
+    # must NOT be matched this way — they need at least 2 tokens to signal a genuine shared root.
     if (
         len(ca_tokens) > 1
         and len(cb_tokens) > 1
@@ -44,6 +45,11 @@ def _fuzzy_match(a: str, b: str) -> bool:
         and len(ca_tokens[0]) >= 4
     ):
         return True
+    # SequenceMatcher fallback: require both sides to have >1 token before allowing a high-ratio
+    # match. Two identical single-token strings (ratio=1.0) would otherwise always merge, defeating
+    # the suffix-stripping guard above for names like "Pacific Freight" vs "Pacific Logistics".
+    if len(ca_tokens) < 2 or len(cb_tokens) < 2:
+        return False
     return SequenceMatcher(None, ca, cb).ratio() >= 0.82
 
 
