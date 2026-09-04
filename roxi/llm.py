@@ -16,15 +16,16 @@ T = TypeVar("T", bound=BaseModel)
 
 _client: anthropic.Anthropic | None = None
 
-# Model name constants — use these instead of bare strings everywhere
+# Model name constants — verified 2026-09-04 against console.anthropic.com/docs/models
 HAIKU = "claude-haiku-4-5-20251001"
 SONNET = "claude-sonnet-4-6"
 OPUS = "claude-opus-4-8"
 
+# Pricing per million tokens — verified 2026-09-04 against anthropic.com/pricing
 COST_PER_MILLION = {
-    HAIKU: {"input": 0.80, "output": 4.00},
+    HAIKU:  {"input": 1.00, "output": 5.00},
     SONNET: {"input": 3.00, "output": 15.00},
-    OPUS: {"input": 15.00, "output": 75.00},
+    OPUS:   {"input": 15.00, "output": 75.00},
 }
 
 
@@ -60,6 +61,7 @@ def structured(
     run_id: str | None = None,
     org_id: str | None = None,
     max_retries: int = 1,
+    max_tokens: int = 2048,
 ) -> T:
     tool_def = {
         "name": schema.__name__,
@@ -98,7 +100,7 @@ def structured(
         try:
             response = _get_client().messages.create(
                 model=model,
-                max_tokens=2048,
+                max_tokens=max_tokens,
                 system=system,
                 messages=messages,
                 tools=[tool_def],

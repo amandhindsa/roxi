@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 
@@ -51,6 +52,9 @@ def research_company(scored: ScoredSignal, vertical: VerticalConfig, run_id: str
         f"Find fleet size, operating lanes, current software stack, and decision-maker title."
     )
 
+    _prompt_version = hashlib.sha256(_SEARCH_SYSTEM.encode()).hexdigest()[:16]
+    _input_hash = hashlib.sha256(search_user.encode()).hexdigest()[:16]
+
     try:
         t0 = time.perf_counter()
         search_response = client.messages.create(
@@ -58,7 +62,7 @@ def research_company(scored: ScoredSignal, vertical: VerticalConfig, run_id: str
             max_tokens=2000,
             system=_SEARCH_SYSTEM.format(product_brief=vertical.product_brief),
             messages=[{"role": "user", "content": search_user}],
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}],
         )
         latency_ms = int((time.perf_counter() - t0) * 1000)
     except anthropic.APIError as exc:
@@ -70,6 +74,7 @@ def research_company(scored: ScoredSignal, vertical: VerticalConfig, run_id: str
     output_tok = search_response.usage.output_tokens
     rates = _COST_PER_MILLION.get(vertical.models.researcher, {"input": 0, "output": 0})
     cost_usd = (input_tok * rates["input"] + output_tok * rates["output"]) / 1_000_000
+    has_text = any(hasattr(b, "text") for b in search_response.content)
     try:
         store.log_llm_call(
             model=vertical.models.researcher,
@@ -80,6 +85,9 @@ def research_company(scored: ScoredSignal, vertical: VerticalConfig, run_id: str
             latency_ms=latency_ms,
             lead_id=None,
             run_id=run_id,
+            prompt_version=_prompt_version,
+            input_hash=_input_hash,
+            outcome="ok" if has_text else "empty",
         )
     except Exception as exc:
         log.debug("researcher: failed to log search call: %s", exc)

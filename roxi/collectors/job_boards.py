@@ -7,7 +7,8 @@ from roxi.config import VerticalConfig
 from roxi.models import RawItem
 
 # Phase 1 collector — job boards via Playwright
-# Playwright browser is initialised once per process via get_browser().
+# A fresh browser is launched per fetch() call; _fetch_detail uses a second page
+# so the search results page is never navigated away from.
 
 
 def _get_browser():
@@ -24,11 +25,14 @@ def fetch(vertical: VerticalConfig) -> list[RawItem]:
     items: list[RawItem] = []
     browser, playwright = _get_browser()
     try:
-        page = browser.new_page(user_agent=(
-            "Mozilla/5.0 (compatible; Roxi/0.1; +https://hauler.ai/bot)"
+        search_page = browser.new_page(user_agent=(
+            "Mozilla/5.0 (compatible; Roxi/0.1; +https://roxi.ai/bot)"
+        ))
+        detail_page = browser.new_page(user_agent=(
+            "Mozilla/5.0 (compatible; Roxi/0.1; +https://roxi.ai/bot)"
         ))
         for query in vertical.channels.job_boards.queries:
-            items.extend(_search_indeed(page, query))
+            items.extend(_search_indeed(search_page, detail_page, query))
             time.sleep(3)
     finally:
         browser.close()
@@ -37,32 +41,37 @@ def fetch(vertical: VerticalConfig) -> list[RawItem]:
     return items
 
 
-def _search_indeed(page, query: str) -> list[RawItem]:
+def _search_indeed(search_page, detail_page, query: str) -> list[RawItem]:
     url = f"https://ca.indeed.com/jobs?q={query.replace(' ', '+')}&l=Canada"
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        search_page.goto(url, wait_until="domcontentloaded", timeout=15000)
     except Exception:
         return []
 
-    items = []
-    cards = page.query_selector_all("div.job_seen_beacon")[:20]
+    # Collect all card metadata first — before any navigation that would stale the handles.
+    card_data: list[tuple[str, str, str]] = []
+    cards = search_page.query_selector_all("div.job_seen_beacon")[:20]
     for card in cards:
         try:
             title_el = card.query_selector("h2.jobTitle")
             company_el = card.query_selector("[data-testid='company-name']")
             link_el = card.query_selector("h2.jobTitle a")
-
             if not title_el or not link_el:
                 continue
-
             title = title_el.inner_text().strip()
             company = company_el.inner_text().strip() if company_el else ""
             href = link_el.get_attribute("href") or ""
             source_url = f"https://ca.indeed.com{href}" if href.startswith("/") else href
+            card_data.append((title, company, source_url))
+        except Exception:
+            continue
 
-            detail_text = _fetch_detail(page, source_url)
+    # Now fetch detail pages on the separate page object — search results stay intact.
+    items = []
+    for title, company, source_url in card_data:
+        try:
+            detail_text = _fetch_detail(detail_page, source_url)
             body = f"Company: {company}\n\n{detail_text}" if company else detail_text
-
             items.append(RawItem(
                 channel="job_boards",
                 source_url=source_url,
@@ -70,7 +79,7 @@ def _search_indeed(page, query: str) -> list[RawItem]:
                 title=title,
                 body=body[:8000],
             ))
-            time.sleep(3)
+            time.sleep(2)
         except Exception:
             continue
 

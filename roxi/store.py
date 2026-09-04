@@ -13,6 +13,16 @@ from roxi.models import Lead
 
 log = logging.getLogger(__name__)
 
+# Delegate to Supabase backend when USE_SUPABASE=1 is set.
+# sys.modules replacement ensures all callers get the Supabase module on subsequent imports;
+# the SQLite definitions below are harmless — they're never called when USE_SUPABASE=1
+# because every call site imports roxi.store fresh and gets the replaced module.
+if os.environ.get("USE_SUPABASE") == "1":
+    import sys
+    from roxi.store_supabase import *  # noqa: F401, F403
+    from roxi.store_supabase import _now  # noqa: F401
+    sys.modules[__name__] = sys.modules["roxi.store_supabase"]
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -120,21 +130,44 @@ def init_db(path: str | None = None) -> None:
                 cost_usd REAL NOT NULL,
                 created_at TEXT NOT NULL
             );
+            -- Stage-level observability: one row per item per stage, including drops
+            CREATE TABLE IF NOT EXISTS stage_outputs (
+                id           TEXT PRIMARY KEY,
+                run_id       TEXT NOT NULL,
+                org_id       TEXT,
+                item_seq     INTEGER NOT NULL,
+                stage        TEXT NOT NULL,
+                status       TEXT NOT NULL,
+                drop_reason  TEXT,
+                drop_detail  TEXT,
+                payload_json TEXT,
+                source_url   TEXT,
+                company      TEXT,
+                created_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS stage_outputs_run
+                ON stage_outputs(run_id, stage);
+            CREATE INDEX IF NOT EXISTS stage_outputs_company
+                ON stage_outputs(company);
+            CREATE INDEX IF NOT EXISTS stage_outputs_reason
+                ON stage_outputs(drop_reason);
         """)
     log.debug("init_db complete: %s", _DB_PATH)
 
 
-def save(lead: Lead, vertical_id: str) -> None:
+def save(lead: Lead, vertical_id: str) -> bool:
+    """Persist lead. Returns True if inserted, False on dedupe_key collision."""
     try:
-      _save(lead, vertical_id)
+        return _save(lead, vertical_id)
     except Exception as exc:
         log.error("store.save failed for lead %s: %s", lead.id, exc, exc_info=True)
         raise
 
 
-def _save(lead: Lead, vertical_id: str) -> None:
+def _save(lead: Lead, vertical_id: str) -> bool:
+    """Return True if the lead was actually inserted (False = dedupe_key collision)."""
     with _conn() as con:
-        con.execute(
+        cur = con.execute(
             """INSERT OR IGNORE INTO leads
                (id, vertical_id, raw_json, signal_json, scored_json,
                 research_json, draft_json, dedupe_key, status, created_at)
@@ -152,10 +185,19 @@ def _save(lead: Lead, vertical_id: str) -> None:
                 lead.created_at.isoformat(),
             ),
         )
+        inserted = cur.rowcount > 0
+        if not inserted:
+            log.warning(
+                "store.save: dedupe_key collision for lead %s (key=%s) — not persisted",
+                lead.id,
+                lead.dedupe_key,
+            )
+            return False
         con.execute(
             "INSERT OR IGNORE INTO dedupe_keys (key, created_at) VALUES (?,?)",
             (lead.dedupe_key, lead.created_at.isoformat()),
         )
+        return True
 
 
 def update_status(lead_id: str, status: str) -> None:
@@ -368,9 +410,17 @@ def recent_company_names(days: int = 30) -> list[str]:
     return names
 
 
-def seen_dedupe_keys() -> set[str]:
+def seen_dedupe_keys(days: int = 90) -> set[str]:
+    """Return dedupe keys created within the last `days` days.
+
+    Bounded to avoid loading the entire table into memory forever.
+    90 days keeps a meaningful repeat-contact window without unbounded growth.
+    """
     with _conn() as con:
-        rows = con.execute("SELECT key FROM dedupe_keys").fetchall()
+        rows = con.execute(
+            "SELECT key FROM dedupe_keys WHERE created_at >= datetime('now', ?)",
+            (f"-{days} days",),
+        ).fetchall()
     return {r["key"] for r in rows}
 
 
@@ -494,6 +544,45 @@ def finish_run(
             )
     except Exception as exc:
         log.error("store.finish_run failed run=%s: %s", run_id, exc, exc_info=True)
+
+
+def log_stage_output(
+    *,
+    run_id: str,
+    item_seq: int,
+    stage: str,
+    status: str,
+    org_id: str | None = None,
+    drop_reason: str | None = None,
+    drop_detail: str | None = None,
+    payload_json: str | None = None,
+    source_url: str | None = None,
+    company: str | None = None,
+) -> None:
+    try:
+        with _conn() as con:
+            con.execute(
+                """INSERT INTO stage_outputs
+                   (id, run_id, org_id, item_seq, stage, status,
+                    drop_reason, drop_detail, payload_json, source_url, company, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    str(uuid.uuid4()),
+                    run_id,
+                    org_id,
+                    item_seq,
+                    stage,
+                    status,
+                    drop_reason,
+                    drop_detail,
+                    payload_json,
+                    source_url,
+                    company,
+                    _now(),
+                ),
+            )
+    except Exception as exc:
+        log.error("store.log_stage_output failed run=%s stage=%s: %s", run_id, stage, exc)
 
 
 def add_to_suppression_list(contact_identifier: str, channel: str, reason: str) -> None:

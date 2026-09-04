@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from difflib import SequenceMatcher
 
 from roxi.models import Signal
+
+log = logging.getLogger(__name__)
 
 _CORP_SUFFIXES = re.compile(
     r"\b(ltd|limited|inc|incorporated|corp|corporation|lp|llc|co|company|"
@@ -31,9 +34,56 @@ def _fuzzy_match(a: str, b: str) -> bool:
     ca, cb = _canonical(a), _canonical(b)
     if not ca or not cb:
         return False
-    if ca.split()[0] == cb.split()[0] and len(ca.split()[0]) >= 4:
+    # First-token match only when both canonicals have >1 token — prevents "Pacific Freight"
+    # collapsing with "Pacific Logistics" after suffixes are stripped.
+    ca_tokens, cb_tokens = ca.split(), cb.split()
+    if (
+        len(ca_tokens) > 1
+        and len(cb_tokens) > 1
+        and ca_tokens[0] == cb_tokens[0]
+        and len(ca_tokens[0]) >= 4
+    ):
         return True
     return SequenceMatcher(None, ca, cb).ratio() >= 0.82
+
+
+def dedupe_exact(signals: list[Signal], seen_keys: set[str]) -> list[Signal]:
+    """Remove signals whose exact key has been seen before (cross-run or within-run)."""
+    surviving: list[Signal] = []
+    local_keys: set[str] = set()
+    for sig in signals:
+        key = signal_key(sig)
+        if key in seen_keys or key in local_keys:
+            continue
+        local_keys.add(key)
+        surviving.append(sig)
+    return surviving
+
+
+def dedupe_company(
+    signals: list[Signal],
+    recent_company_names: list[str],
+) -> list[Signal]:
+    """Remove signals for companies already contacted recently, keeping highest-score when
+    multiple signals for the same company compete within this run.
+
+    Signals must already be sorted highest-score first so that the winner is the first one
+    seen for each company.
+    """
+    surviving: list[Signal] = []
+    local_companies: list[str] = list(recent_company_names)
+
+    for sig in signals:
+        already_seen = any(_fuzzy_match(sig.company, name) for name in local_companies)
+        if already_seen:
+            log.debug(
+                "dedupe: dropped %r — fuzzy match against existing company", sig.company
+            )
+            continue
+        local_companies.append(sig.company)
+        surviving.append(sig)
+
+    return surviving
 
 
 def dedupe(
@@ -41,22 +91,9 @@ def dedupe(
     seen_keys: set[str],
     recent_company_names: list[str],
 ) -> list[Signal]:
-    surviving: list[Signal] = []
-    local_keys: set[str] = set()
-    local_companies: list[str] = list(recent_company_names)
+    """Legacy entry point used by callers that score after deduping.
 
-    for sig in signals:
-        key = signal_key(sig)
-
-        if key in seen_keys or key in local_keys:
-            continue
-
-        already_seen = any(_fuzzy_match(sig.company, name) for name in local_companies)
-        if already_seen:
-            continue
-
-        local_keys.add(key)
-        local_companies.append(sig.company)
-        surviving.append(sig)
-
-    return surviving
+    Prefer calling dedupe_exact + score + sort + dedupe_company directly.
+    """
+    after_exact = dedupe_exact(signals, seen_keys)
+    return dedupe_company(after_exact, recent_company_names)

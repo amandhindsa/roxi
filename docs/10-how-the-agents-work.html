@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roxi — how the agents work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ground:#E9EDF1; --panel:#F6F8FA; --ink:#14202B; --ink-soft:#4A5A69;
+    --rule:#C3CDD6; --amber:#B3660C; --amber-wash:#F7EBDA; --teal:#106B5E;
+    --stencil:'Archivo',system-ui,sans-serif;
+    --body:'IBM Plex Sans',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);
+    font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:840px;margin:0 auto;padding:56px 24px 96px}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+
+  header{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:44px}
+  h1{font-family:var(--stencil);font-weight:600;font-size:clamp(30px,6vw,46px);
+    letter-spacing:-0.02em;line-height:1.05;margin:0 0 10px}
+  .standfirst{max-width:62ch;color:var(--ink-soft);margin:0}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:18px}
+
+  h2{font-family:var(--stencil);font-weight:600;font-size:22px;letter-spacing:-0.01em;
+    margin:56px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--rule)}
+  h3{font-family:var(--stencil);font-weight:600;font-size:17px;margin:30px 0 6px}
+  p{max-width:70ch}
+  code{font-family:var(--mono);font-size:13px;background:var(--panel);
+    padding:1px 5px;border:1px solid var(--rule)}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0 20px;font-size:15px}
+  th,td{text-align:left;padding:8px 12px 8px 0;vertical-align:top;border-bottom:1px solid var(--rule)}
+  th{font-family:var(--stencil);font-weight:500;white-space:nowrap}
+  .scroll{overflow-x:auto}
+
+  .kind{font-family:var(--mono);font-size:11px;padding:1px 7px;border:1px solid var(--rule);
+    background:var(--panel);white-space:nowrap}
+  .kind.model{border-color:var(--teal);color:var(--teal)}
+  .kind.code{border-color:var(--ink-soft);color:var(--ink-soft)}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:16px 0 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;max-width:66ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;
+    font-family:var(--mono);font-size:12px;width:24px;height:24px;line-height:24px;
+    text-align:center;border:1px solid var(--rule);background:var(--panel)}
+  .steps li b{font-family:var(--stencil);font-weight:500}
+
+  .gate{margin:18px 0;padding:14px 20px;background:var(--amber-wash);border-left:6px solid var(--amber)}
+  .gate b{font-family:var(--stencil);color:var(--amber);display:block;margin-bottom:2px}
+  .gate p{margin:0;max-width:62ch;font-size:15px}
+
+  .pipe{margin:10px 0 0;border-left:2px solid var(--rule)}
+  .stage{display:flex;gap:14px;align-items:baseline;padding:8px 0 8px 20px;position:relative;flex-wrap:wrap}
+  .stage::before{content:"";position:absolute;left:-5px;top:16px;width:8px;height:8px;
+    background:var(--ink);border-radius:50%}
+  .stage-name{font-family:var(--stencil);font-weight:500;min-width:96px}
+  .stage-note{color:var(--ink-soft);font-size:15px;flex:1;min-width:220px}
+
+  .note{border-left:3px solid var(--rule);padding:2px 0 2px 16px;margin:12px 0;
+    font-size:15px;color:var(--ink-soft);max-width:64ch}
+  .note b{font-family:var(--stencil);font-weight:500;color:var(--ink)}
+
+  footer{margin-top:64px;padding-top:18px;border-top:2px solid var(--ink);
+    font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>How the Roxi agents work</h1>
+  <p class="standfirst">Eleven components, four of which are agents in the daily run and four of which contain no model at all. This describes what the code in <code>roxi/</code> actually does, not what the plan says it should.</p>
+  <p class="meta">Roxi / docs / 10 &nbsp;·&nbsp; read against the repo on 4 September 2026</p>
+</header>
+
+<h2>What counts as an agent</h2>
+<p>Three different things get called “agents” in conversation. In the codebase they are strictly separated, and the separation is the point: anything that must be predictable contains no model.</p>
+
+<div class="scroll">
+<table>
+  <tr><th>Component</th><th>Kind</th><th>File</th><th>Model</th></tr>
+  <tr><td>Compiler</td><td><span class="kind model">model</span></td><td><code>agents/compiler.py</code></td><td>Sonnet, hard-coded</td></tr>
+  <tr><td>Extractor</td><td><span class="kind model">model</span></td><td><code>agents/extractor.py</code></td><td>from vertical config</td></tr>
+  <tr><td>Scorer</td><td><span class="kind model">model</span></td><td><code>agents/scorer.py</code></td><td>from vertical config</td></tr>
+  <tr><td>Researcher</td><td><span class="kind model">model</span></td><td><code>agents/researcher.py</code></td><td>from vertical config</td></tr>
+  <tr><td>Drafter</td><td><span class="kind model">model</span></td><td><code>agents/drafter.py</code></td><td>from vertical config</td></tr>
+  <tr><td>Responder</td><td><span class="kind model">model</span></td><td><code>agents/responder.py</code></td><td>Haiku, hard-coded</td></tr>
+  <tr><td>Planner</td><td><span class="kind model">model</span></td><td><code>content/planner.py</code></td><td>Sonnet, hard-coded</td></tr>
+  <tr><td>Director</td><td><span class="kind model">model</span></td><td><code>content/director.py</code></td><td>Sonnet, hard-coded</td></tr>
+  <tr><td>Reviewer</td><td><span class="kind model">model</span></td><td><code>content/reviewer.py</code></td><td>Sonnet, hard-coded</td></tr>
+  <tr><td>Dispatcher</td><td><span class="kind code">code</span></td><td><code>dispatcher.py</code></td><td>none</td></tr>
+  <tr><td>Publisher</td><td><span class="kind code">code</span></td><td><code>content/publisher.py</code></td><td>none</td></tr>
+  <tr><td>Dedupe</td><td><span class="kind code">code</span></td><td><code>dedupe.py</code></td><td>none</td></tr>
+  <tr><td>Collectors</td><td><span class="kind code">code</span></td><td><code>collectors/*.py</code></td><td>none</td></tr>
+  <tr><td>Orchestration</td><td><span class="kind code">code</span></td><td><code>pipeline.py</code></td><td>none</td></tr>
+</table>
+</div>
+
+<p class="note"><b>Worth noticing:</b> only the four daily-run agents read their model from the vertical config. Compiler, Responder, Planner, Director and Reviewer import module constants directly, so switching models for those means editing Python rather than YAML. Fine for now, inconsistent later.</p>
+
+<h2>Anatomy of one agent call</h2>
+<p>Every model call in the system goes through a single function, <code>structured()</code> in <code>llm.py</code>. No agent talks to the Anthropic client directly except the Researcher and Compiler, which need web search. The path:</p>
+
+<ol class="steps">
+  <li><b>A Pydantic class defines the output.</b> <code>schema.model_json_schema()</code> becomes a tool definition — the class <em>is</em> the contract.</li>
+  <li><b>The call forces that tool.</b> <code>tool_choice={"type":"tool","name":schema.__name__}</code> means the model cannot reply with prose. It must emit the structure.</li>
+  <li><b>The response is searched for a <code>tool_use</code> block</b>, and its <code>.input</code> is validated back into the Pydantic class.</li>
+  <li><b>On validation failure, one retry.</b> The failed <code>tool_use</code> is appended to the thread along with a <code>tool_result</code> carrying the actual error text, so the model sees precisely what was wrong. It uses the real block id — an invented id would break the thread.</li>
+  <li><b>Second failure raises <code>ExtractionError</code>.</b> Agents catch it and return <code>None</code>; the pipeline logs and moves on. One bad item never kills a run.</li>
+  <li><b>Every attempt writes a trace row</b> — model, agent, tokens, cost, latency, outcome, plus a <code>prompt_version</code> (SHA of the system prompt) and <code>input_hash</code>. Successes and failures alike.</li>
+</ol>
+
+<p class="note"><b>Why <code>prompt_version</code> matters:</b> it is a hash of the system prompt, so it changes automatically when a prompt is edited. Months later it is what separates “quality dropped because I changed the prompt” from “quality dropped because a source changed its markup.”</p>
+
+<h2>Pipeline one — setup, runs once</h2>
+<p><code>python -m roxi compile</code> starts an interactive session. This is the only place a model holds a conversation.</p>
+
+<div class="pipe">
+  <div class="stage"><span class="stage-name">Ask</span><span class="stage-note">Two prompts at the terminal: what you sell, and your website URL.</span></div>
+  <div class="stage"><span class="stage-name">Search</span><span class="stage-note">The Compiler reads the site with web search and forms a view of the market.</span></div>
+  <div class="stage"><span class="stage-name">Interview</span><span class="stage-note">A loop: the model asks, you answer, the thread grows. It is told to press hardest on disqualifiers.</span></div>
+  <div class="stage"><span class="stage-name">Emit</span><span class="stage-note">When ready it calls <code>EmitVerticalConfig</code>, and the YAML is printed for review with the session cost.</span></div>
+  <div class="stage"><span class="stage-name">Decide</span><span class="stage-note">Accept, edit, or quit. Rejection feeds your words back as a <code>tool_result</code> and the loop continues.</span></div>
+</div>
+
+<p>The instruction that does the most work: <em>“Disqualifiers must be unambiguous. ‘Too small’ is not a disqualifier. ‘Fewer than 8 trucks’ is.”</em> Every rule has to be checkable against one signal field, because the Scorer downstream can only apply rules of that shape.</p>
+
+<h2>Pipeline two — the daily GTM run</h2>
+<p><code>pipeline.run()</code> is about eighty lines of sequential Python. Nothing re-plans; a human can read the whole run top to bottom.</p>
+
+<div class="pipe">
+  <div class="stage"><span class="stage-name">Collect</span><span class="stage-note">Job boards, registry, Reddit. Each wrapped in try/except — a broken collector logs an event and the run continues with whatever the others returned.</span></div>
+  <div class="stage"><span class="stage-name">Extract</span><span class="stage-note">Haiku, every item. Drops anything where no company can be named.</span></div>
+  <div class="stage"><span class="stage-name">Dedupe</span><span class="stage-note">Pure code. Exact signal hash, then fuzzy company match against 30 days of history.</span></div>
+  <div class="stage"><span class="stage-name">Score</span><span class="stage-note">Haiku, every survivor. Disqualifiers checked first; additive deltas otherwise.</span></div>
+</div>
+
+<div class="gate">
+  <b>The gate — <code>score >= qualify_threshold</code>, then <code>[:daily_research_budget]</code></b>
+  <p>Two cuts, both in config. Above this line runs on Haiku across hundreds of items; below it runs on Sonnet with web search across roughly fifteen. That is where the cost is, and why the gate is a number rather than a judgment call.</p>
+</div>
+
+<div class="pipe">
+  <div class="stage"><span class="stage-name">Research</span><span class="stage-note">Two calls: a search turn that browses, then a clean extraction turn that sees only the notes. No results, no lead.</span></div>
+  <div class="stage"><span class="stage-name">Draft</span><span class="stage-note">Sonnet. Refuses to run at all without a research brief.</span></div>
+  <div class="stage"><span class="stage-name">Store &amp; deliver</span><span class="stage-note">A row per lead, then a Slack card. Run totals and cost written back to the <code>runs</code> table.</span></div>
+</div>
+
+<h3>How each daily agent is instructed</h3>
+<div class="scroll">
+<table>
+  <tr><th>Agent</th><th>The rule that shapes its behaviour</th></tr>
+  <tr><td>Extractor</td><td><code>evidence</code> must be copied word for word. Never paraphrase. Fleet size only when stated — not inferred from tone or industry cues.</td></tr>
+  <tr><td>Scorer</td><td>Disqualifiers first, then additive deltas, each recorded in <code>rules_fired</code> so the sum can be checked. Explicitly forbidden from writing sales-facing prose.</td></tr>
+  <tr><td>Researcher</td><td>Only record what search verified. Thin results mean <code>confidence: low</code> and fewer hooks, never padding. Titles only, never invented names.</td></tr>
+  <tr><td>Drafter</td><td>Under 120 words, open on the researched fact, one small ask. Banned words are named individually. Low confidence means a shorter email, not a longer one.</td></tr>
+</table>
+</div>
+
+<h2>Pipeline three — replies and sending</h2>
+
+<h3>Responder <span class="kind model">model</span></h3>
+<p>One agent for every channel, because “not interested” means the same thing by email or text. Seven intents: interested, not now, wrong person, out of office, unsubscribe, hostile, other.</p>
+<p>The prompt tells it to be deliberately trigger-happy about unsubscribes — a false positive costs one lead, a miss is a compliance breach. Unsubscribe and hostile write to the suppression list <em>immediately</em>, before any human sees the reply.</p>
+
+<h3>Dispatcher <span class="kind code">code</span></h3>
+<p>No model. It sends only leads whose status is <code>approved</code>, checks the suppression list before each send, and writes an audit row either way. It has no discretion by design — the one step that must be predictable is the one that touches the outside world.</p>
+
+<div class="gate">
+  <b>Known defect — do not send from this yet</b>
+  <p>The current adapter constructs the recipient address as <code>contact@{domain}</code>. That is a guess: it bounces, damages sending-domain reputation, and undercuts any implied-consent position under CASL. See <code>09-known-bugs.md</code> H1 and M5 before Phase 3.</p>
+</div>
+
+<h2>Pipeline four — content</h2>
+
+<div class="pipe">
+  <div class="stage"><span class="stage-name">Planner</span><span class="stage-note">3–7 items a week, each with a specific angle. Told that “post about our product” is not a topic. Never proposes Reddit or LinkedIn.</span></div>
+  <div class="stage"><span class="stage-name">Director</span><span class="stage-note">Writes the production brief: finished copy for text, a detailed prompt for image, a script and shot list under 90 seconds for video.</span></div>
+  <div class="stage"><span class="stage-name">Generators</span><span class="stage-note">Adapters, no model. Costs recorded per asset in <code>generation_costs</code>.</span></div>
+  <div class="stage"><span class="stage-name">Reviewer</span><span class="stage-note">The skeptic. Checks brand voice, claim substantiation, platform fit, and screenshot risk.</span></div>
+  <div class="stage"><span class="stage-name">Publisher</span><span class="stage-note">Code. Rate-limited per platform, audit row per attempt, refuses unapproved assets.</span></div>
+</div>
+
+<p><b>Two details in the Reviewer worth keeping.</b> It is told to find problems rather than approve things — the opposite disposition to the Director, which is why they are separate calls. And it is explicitly told not to invent problems to seem thorough, because a reviewer that always finds something teaches people to ignore it.</p>
+
+<p><b>The Publisher enforces its limits in code, not prose.</b> <code>_FORBIDDEN_PLATFORMS</code> is a frozenset containing <code>reddit</code> and <code>linkedin</code>, and passing either raises <code>ValueError</code> before anything else runs. A rule written only in a system prompt is a suggestion; this one cannot be talked around.</p>
+
+<h2>What holds it together</h2>
+
+<h3>Typed handoffs</h3>
+<p><code>RawItem → Signal → ScoredSignal → ResearchBrief → EmailDraft</code>. Each stage receives a validated object, never a transcript. The Scorer sees seven clean fields serialised as JSON — never the eight thousand characters of scraped HTML the Extractor read.</p>
+
+<h3>Failure is local</h3>
+<p>Agents return <code>None</code> rather than raising. A failed extraction drops one item; a failed collector drops one channel; a failed research call drops one lead. The run always finishes and always writes its totals.</p>
+
+<h3>Everything is traced</h3>
+<p>Five tables carry the record: <code>runs</code> for totals, <code>llm_calls</code> for every model call, <code>events</code> for pipeline milestones, <code>publish_log</code> and <code>generation_costs</code> for the content side. The run id threads through all of them, so any lead can be traced back to the exact calls that produced it.</p>
+
+<h3>The rules that live in code, not prompts</h3>
+<ul>
+  <li>Dedupe — hashing and string similarity, no model involved</li>
+  <li>The threshold and research budget — two config numbers, applied by the pipeline</li>
+  <li>Suppression — checked by the Dispatcher before every send</li>
+  <li>Forbidden platforms — a frozenset that raises</li>
+  <li>Approval — the Dispatcher only ever reads <code>status == "approved"</code></li>
+</ul>
+<p>Anything that must not be negotiable is not phrased as an instruction to a model.</p>
+
+<h2>Current state</h2>
+<p>All eleven components exist. The eval harness has never been run, so no baseline exists for scoring quality, and fourteen defects are logged in <code>09-known-bugs.md</code> — two of them blocking, including stale model IDs that make every Sonnet call fail. Read that document before running anything described here.</p>
+
+<footer>Roxi &nbsp;·&nbsp; how the agents work &nbsp;·&nbsp; 4 September 2026 &nbsp;·&nbsp; contracts: 06-agent-specifications.html &nbsp;·&nbsp; defects: 09-known-bugs.md</footer>
+
+</div>
+</body>
+</html>

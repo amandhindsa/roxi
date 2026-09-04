@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from roxi.agents.drafter import draft_email
@@ -8,7 +9,7 @@ from roxi.agents.researcher import research_company
 from roxi.agents.scorer import score
 from roxi.collectors import job_boards, registry, reddit
 from roxi.config import VerticalConfig
-from roxi.dedupe import dedupe, signal_key
+from roxi.dedupe import dedupe_company, dedupe_exact, signal_key
 from roxi.delivery import deliver
 from roxi.models import Lead, RawItem
 from roxi import store
@@ -45,51 +46,153 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
     log.info("collected %d raw items (run_id=%s)", len(raw_items), run_id)
 
     signals = []
-    for raw in raw_items:
+    for i, raw in enumerate(raw_items):
         sig = extract(raw, vertical, run_id=run_id)
         if sig is not None:
             signals.append((raw, sig))
+            store.log_stage_output(
+                run_id=run_id, item_seq=i, stage="extract", status="passed",
+                payload_json=sig.model_dump_json(),
+                source_url=raw.source_url, company=sig.company,
+            )
+        else:
+            store.log_stage_output(
+                run_id=run_id, item_seq=i, stage="extract", status="dropped",
+                drop_reason="extraction_failed",
+                drop_detail=raw.title[:120] if raw.title else None,
+                source_url=raw.source_url,
+            )
 
     log.info("extracted %d signals from %d items (run_id=%s)", len(signals), len(raw_items), run_id)
 
     seen_keys = store.seen_dedupe_keys()
     recent_names = store.recent_company_names(days=30)
 
+    # Exact dedupe first (cheap — no LLM calls)
     signal_objects = [s for _, s in signals]
-    deduped = dedupe(signal_objects, seen_keys, recent_names)
-    deduped_set = {signal_key(s) for s in deduped}
+    exact_deduped = dedupe_exact(signal_objects, seen_keys)
+    exact_set = {signal_key(s) for s in exact_deduped}
 
-    survivors = [(r, s) for r, s in signals if signal_key(s) in deduped_set]
-    log.info("%d signals after dedupe (run_id=%s)", len(survivors), run_id)
+    survivors = []
+    for i, (r, s) in enumerate(signals):
+        if signal_key(s) in exact_set:
+            survivors.append((r, s))
+        else:
+            store.log_stage_output(
+                run_id=run_id, item_seq=i, stage="dedupe", status="dropped",
+                drop_reason="duplicate_exact",
+                source_url=r.source_url, company=s.company,
+            )
 
+    log.info("%d signals after exact dedupe (run_id=%s)", len(survivors), run_id)
+
+    # Score before company dedupe so the best signal per company wins (H3)
     scored_pairs = []
-    for raw, sig in survivors:
+    for i, (raw, sig) in enumerate(survivors):
         scored = score(sig, vertical, run_id=run_id)
         if scored is None:
-            continue  # ExtractionError — signal skipped, not added to dedup keys
+            store.log_stage_output(
+                run_id=run_id, item_seq=i, stage="score", status="dropped",
+                drop_reason="scoring_failed",
+                source_url=raw.source_url, company=sig.company,
+            )
+            continue
+        store.log_stage_output(
+            run_id=run_id, item_seq=i, stage="score", status="passed",
+            payload_json=scored.model_dump_json(),
+            source_url=raw.source_url, company=scored.company,
+        )
         scored_pairs.append((raw, scored))
 
-    qualified = [
-        (r, s) for r, s in scored_pairs
-        if not s.disqualified_by and s.score >= vertical.qualify_threshold
-    ]
+    # Sort highest score first, then company dedupe keeps the winner
+    scored_pairs.sort(key=lambda x: x[1].score, reverse=True)
+    scored_signals = [s for _, s in scored_pairs]
+    company_deduped = dedupe_company(scored_signals, recent_names)
+    company_set = {signal_key(s) for s in company_deduped}
+
+    deduped_pairs = []
+    for i, (r, s) in enumerate(scored_pairs):
+        if signal_key(s) in company_set:
+            deduped_pairs.append((r, s))
+        else:
+            store.log_stage_output(
+                run_id=run_id, item_seq=i, stage="dedupe", status="dropped",
+                drop_reason="duplicate_fuzzy",
+                source_url=r.source_url, company=s.company,
+            )
+    scored_pairs = deduped_pairs
+
+    log.info("%d signals after company dedupe (run_id=%s)", len(scored_pairs), run_id)
+
+    qualified = []
+    for i, (r, s) in enumerate(scored_pairs):
+        if s.disqualified_by:
+            store.log_stage_output(
+                run_id=run_id, item_seq=i, stage="score", status="dropped",
+                drop_reason="disqualified",
+                drop_detail=s.disqualified_by,
+                payload_json=s.model_dump_json(),
+                source_url=r.source_url, company=s.company,
+            )
+        elif s.score < vertical.qualify_threshold:
+            store.log_stage_output(
+                run_id=run_id, item_seq=i, stage="score", status="dropped",
+                drop_reason="below_threshold",
+                drop_detail=f"score={s.score} threshold={vertical.qualify_threshold}",
+                payload_json=s.model_dump_json(),
+                source_url=r.source_url, company=s.company,
+            )
+        else:
+            qualified.append((r, s))
+
+    # Log items cut by the budget cap
+    for i, (r, s) in enumerate(qualified[vertical.daily_research_budget:]):
+        store.log_stage_output(
+            run_id=run_id, item_seq=i, stage="score", status="dropped",
+            drop_reason="over_budget",
+            source_url=r.source_url, company=s.company,
+        )
     qualified = qualified[:vertical.daily_research_budget]
+
     log.info("%d signals qualified (threshold=%d, budget=%d, run_id=%s)",
              len(qualified), vertical.qualify_threshold, vertical.daily_research_budget, run_id)
 
     total_cost = 0.0
     leads: list[Lead] = []
 
-    for raw, scored in qualified:
+    for seq, (raw, scored) in enumerate(qualified):
         try:
             research = research_company(scored, vertical, run_id=run_id)
             if research is None:
                 log.info("pipeline: skipping %r — no research (run_id=%s)", scored.company, run_id)
                 emit("lead.error", run_id=run_id, vertical_id=vertical.vertical_id,
                      data={"company": scored.company, "error": "research returned None"}, level="warning")
+                store.log_stage_output(
+                    run_id=run_id, item_seq=seq, stage="research", status="dropped",
+                    drop_reason="research_empty",
+                    source_url=raw.source_url, company=scored.company,
+                )
                 continue
 
+            store.log_stage_output(
+                run_id=run_id, item_seq=seq, stage="research", status="passed",
+                payload_json=research.model_dump_json(),
+                source_url=raw.source_url, company=scored.company,
+            )
+
             draft = draft_email(scored, research, vertical, run_id=run_id)
+            if draft is None:
+                log.warning("pipeline: no draft for %r (run_id=%s) — skipping", scored.company, run_id)
+                store.log_stage_output(
+                    run_id=run_id, item_seq=seq, stage="draft", status="dropped",
+                    drop_reason="draft_failed",
+                    source_url=raw.source_url, company=scored.company,
+                )
+                continue
+            store.log_stage_output(
+                run_id=run_id, item_seq=seq, stage="draft", status="passed",
+                source_url=raw.source_url, company=scored.company,
+            )
 
             # signal = the pre-scoring Signal fields; scored = the full ScoredSignal
             from roxi.models import Signal
@@ -102,7 +205,10 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
                 draft=draft,
                 dedupe_key=signal_key(scored),
             )
-            store.save(lead, vertical.vertical_id)
+            persisted = store.save(lead, vertical.vertical_id)
+            if not persisted:
+                log.warning("pipeline: lead %s not persisted (dedupe collision) — skipping delivery", lead.id)
+                continue
             leads.append(lead)
             emit("lead.created", run_id=run_id, vertical_id=vertical.vertical_id,
                  lead_id=lead.id, data={"company": scored.company, "score": scored.score})
