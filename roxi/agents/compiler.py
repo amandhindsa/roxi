@@ -24,7 +24,7 @@ from roxi.config import (
     ChannelJobBoards, ChannelReddit, ChannelRegistry, ChannelsConfig,
     ICPConfig, ModelsConfig, ScoringRule, VerticalConfig,
 )
-from roxi.llm import COST_PER_MILLION, SONNET, _get_client
+from roxi.llm import COST_PER_MILLION, HAIKU, SONNET, _get_client
 from roxi import store
 
 log = logging.getLogger(__name__)
@@ -69,10 +69,10 @@ class _EmittedConfig(BaseModel):
     registry_enabled: bool = False
     reddit_enabled: bool = False
     reddit_subreddits: list[str] = []
-    extractor_model: str = "claude-haiku-4-5-20251001"   # HAIKU
-    scorer_model: str = "claude-haiku-4-5-20251001"       # HAIKU
-    researcher_model: str = "claude-sonnet-4-6"           # SONNET
-    drafter_model: str = "claude-sonnet-4-6"              # SONNET
+    extractor_model: str = HAIKU
+    scorer_model: str = HAIKU
+    researcher_model: str = SONNET
+    drafter_model: str = SONNET
     daily_research_budget: int = 15
     notes_for_user: str = ""
 

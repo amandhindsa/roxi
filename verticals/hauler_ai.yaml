@@ -56,11 +56,18 @@ channels:
       - r/Truckers
       - r/TruckingIndustry
       - r/canadiantruckers
+    search_terms:
+      - eManifest
+      - CBSA customs
+      - cross-border trucking software
+      - TMS dispatch Canada US
+      - customs paperwork carrier
+      - FMCSA authority Canada
 
 models:
   extractor: claude-haiku-4-5-20251001
   scorer: claude-haiku-4-5-20251001
-  researcher: claude-sonnet-4-6
-  drafter: claude-sonnet-4-6
+  researcher: claude-sonnet-5
+  drafter: claude-sonnet-5
 
 daily_research_budget: 15

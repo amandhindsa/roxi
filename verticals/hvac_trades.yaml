@@ -62,11 +62,18 @@ channels:
       - r/electricians
       - r/smallbusiness
       - r/ContractorTalk
+    search_terms:
+      - scheduling software HVAC
+      - dispatch software plumbing
+      - field service management contractor
+      - spreadsheet scheduling technicians
+      - Jobber alternative
+      - ServiceTitan too expensive
 
 models:
   extractor: claude-haiku-4-5-20251001
   scorer: claude-haiku-4-5-20251001
-  researcher: claude-sonnet-4-6
-  drafter: claude-sonnet-4-6
+  researcher: claude-sonnet-5
+  drafter: claude-sonnet-5
 
 daily_research_budget: 15

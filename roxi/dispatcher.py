@@ -60,18 +60,20 @@ def dispatch(leads: list[Lead], channel: str = "email") -> list[SendResult]:
 
 
 def _send_one(lead: Lead, channel: str) -> SendResult:
-    contact_id = lead.scored.company_domain or lead.scored.company
-
-    if store.is_suppressed(contact_id, channel):
-        log.info("Lead %s suppressed on channel %s — skipping", lead.id, channel)
-        return SendResult(lead_id=lead.id, success=False, error="suppressed")
+    if not lead.contact_email:
+        log.warning(
+            "Lead %s has no verified contact_email — cannot send (company=%r)",
+            lead.id, lead.scored.company,
+        )
+        return SendResult(lead_id=lead.id, success=False, error="no verified email address")
 
     if not lead.draft:
         return SendResult(lead_id=lead.id, success=False, error="no draft available")
 
-    if channel == "email" and not lead.scored.company_domain:
-        log.warning("Lead %s has no company_domain — cannot send email to a fabricated address", lead.id)
-        return SendResult(lead_id=lead.id, success=False, error="no verified email address")
+    # Suppression is keyed on the verified address — the same identifier used for every send.
+    if store.is_suppressed(lead.contact_email, channel):
+        log.info("Lead %s suppressed on channel %s — skipping", lead.id, channel)
+        return SendResult(lead_id=lead.id, success=False, error="suppressed")
 
     if channel == "email":
         return _send_email(lead)
@@ -101,7 +103,7 @@ def _send_email(lead: Lead) -> SendResult:
         "skip_if_in_workspace": True,
         "leads": [
             {
-                "email": f"contact@{lead.scored.company_domain}",
+                "email": lead.contact_email,
                 "first_name": "",
                 "company_name": lead.scored.company,
                 "custom_variables": {

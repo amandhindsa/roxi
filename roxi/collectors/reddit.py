@@ -12,16 +12,6 @@ from datetime import datetime, timezone
 from roxi.config import VerticalConfig
 from roxi.models import RawItem
 
-_SEARCH_TERMS = [
-    "eManifest",
-    "CBSA customs",
-    "cross-border trucking software",
-    "TMS dispatch Canada US",
-    "customs paperwork carrier",
-    "FMCSA authority Canada",
-]
-
-
 def fetch(vertical: VerticalConfig) -> list[RawItem]:
     if not vertical.channels.reddit.enabled:
         return []
@@ -54,7 +44,7 @@ def fetch(vertical: VerticalConfig) -> list[RawItem]:
             import logging
             logging.getLogger(__name__).warning("Reddit subreddit %s failed: %s", sub_name, exc)
 
-    for term in _SEARCH_TERMS:
+    for term in vertical.channels.reddit.search_terms:
         for sub_name in subreddits:
             try:
                 sub = reddit.subreddit(sub_name)

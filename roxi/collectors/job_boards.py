@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 
 from roxi.config import VerticalConfig
 from roxi.models import RawItem
+
+log = logging.getLogger(__name__)
 
 # Phase 1 collector — job boards via Playwright
 # A fresh browser is launched per fetch() call; _fetch_detail uses a second page
@@ -25,14 +28,21 @@ def fetch(vertical: VerticalConfig) -> list[RawItem]:
     items: list[RawItem] = []
     browser, playwright = _get_browser()
     try:
-        search_page = browser.new_page(user_agent=(
-            "Mozilla/5.0 (compatible; Roxi/0.1; +https://roxi.ai/bot)"
-        ))
-        detail_page = browser.new_page(user_agent=(
-            "Mozilla/5.0 (compatible; Roxi/0.1; +https://roxi.ai/bot)"
-        ))
+        ua = "Mozilla/5.0 (compatible; Roxi/0.1; +https://roxi.ai/bot)"
+        search_page = browser.new_page(user_agent=ua)
+        detail_page = browser.new_page(user_agent=ua)
         for query in vertical.channels.job_boards.queries:
+            before = len(items)
             items.extend(_search_indeed(search_page, detail_page, query))
+            count = len(items) - before
+            if count == 0:
+                log.warning(
+                    "job_boards: query %r returned 0 results — "
+                    "Indeed may have changed its layout or blocked the request",
+                    query,
+                )
+            else:
+                log.info("job_boards: query %r → %d items", query, count)
             time.sleep(3)
     finally:
         browser.close()
@@ -45,7 +55,8 @@ def _search_indeed(search_page, detail_page, query: str) -> list[RawItem]:
     url = f"https://ca.indeed.com/jobs?q={query.replace(' ', '+')}&l=Canada"
     try:
         search_page.goto(url, wait_until="domcontentloaded", timeout=15000)
-    except Exception:
+    except Exception as exc:
+        log.warning("job_boards: failed to load search page for %r: %s", query, exc)
         return []
 
     # Collect all card metadata first — before any navigation that would stale the handles.
@@ -63,7 +74,8 @@ def _search_indeed(search_page, detail_page, query: str) -> list[RawItem]:
             href = link_el.get_attribute("href") or ""
             source_url = f"https://ca.indeed.com{href}" if href.startswith("/") else href
             card_data.append((title, company, source_url))
-        except Exception:
+        except Exception as exc:
+            log.debug("job_boards: skipping card for %r: %s", query, exc)
             continue
 
     # Now fetch detail pages on the separate page object — search results stay intact.
@@ -80,7 +92,8 @@ def _search_indeed(search_page, detail_page, query: str) -> list[RawItem]:
                 body=body[:8000],
             ))
             time.sleep(2)
-        except Exception:
+        except Exception as exc:
+            log.warning("job_boards: failed to fetch detail for %r (%s): %s", title, source_url, exc)
             continue
 
     return items

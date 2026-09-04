@@ -8,7 +8,7 @@ from typing import TypeVar
 import anthropic
 from pydantic import BaseModel, ValidationError
 
-from roxi.store import log_llm_call
+from roxi import store as _store
 
 log = logging.getLogger(__name__)
 
@@ -18,8 +18,8 @@ _client: anthropic.Anthropic | None = None
 
 # Model name constants — verified 2026-09-04 against console.anthropic.com/docs/models
 HAIKU = "claude-haiku-4-5-20251001"
-SONNET = "claude-sonnet-4-6"
-OPUS = "claude-opus-4-8"
+SONNET = "claude-sonnet-5"
+OPUS = "claude-opus-5"
 
 # Pricing per million tokens — verified 2026-09-04 against anthropic.com/pricing
 COST_PER_MILLION = {
@@ -158,7 +158,7 @@ def _log_call(
     system: str, user: str, outcome: str,
 ) -> None:
     try:
-        log_llm_call(
+        _store.log_llm_call(
             model=model,
             agent=agent,
             input_tokens=input_tokens,

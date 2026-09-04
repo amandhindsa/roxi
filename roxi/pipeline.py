@@ -18,11 +18,22 @@ from roxi.telemetry import emit
 log = logging.getLogger(__name__)
 
 
-def _collect_all(vertical: VerticalConfig, run_id: str | None = None) -> list[RawItem]:
+def _collect_all(vertical: VerticalConfig, run_id: str | None = None,
+                 subscription_id: str | None = None) -> list[RawItem]:
     raw: list[RawItem] = []
     for collector in (job_boards, registry, reddit):
         try:
             items = collector.fetch(vertical)
+            # Record source health per subscription
+            if subscription_id:
+                try:
+                    store.record_source_health(
+                        subscription_id=subscription_id,
+                        source_name=collector.__name__.split(".")[-1],
+                        count=len(items),
+                    )
+                except Exception:
+                    pass  # source health is observability, not critical path
             emit("collector.run", run_id=run_id, vertical_id=vertical.vertical_id,
                  agent=collector.__name__, data={"items": len(items)})
             raw.extend(items)
@@ -35,14 +46,42 @@ def _collect_all(vertical: VerticalConfig, run_id: str | None = None) -> list[Ra
     return raw
 
 
-def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
-    store.init_db()
-    run_id = store.start_run(vertical.vertical_id, org_id=org_id)
-    log.info("run %s started for %s (org_id=%s)", run_id, vertical.vertical_id, org_id)
-    emit("run.start", run_id=run_id, vertical_id=vertical.vertical_id,
-         data={"org_id": org_id})
+def _check_spend_ceiling(subscription_id: str | None, ceiling: float) -> bool:
+    """Returns True if there is budget remaining (run should proceed)."""
+    if not subscription_id or ceiling <= 0:
+        return True
+    try:
+        spent = store.get_subscription_spend_today(subscription_id)
+        if spent >= ceiling:
+            log.warning(
+                "pipeline: subscription %s has spent $%.4f today (ceiling $%.2f) — skipping run",
+                subscription_id, spent, ceiling,
+            )
+            return False
+    except Exception as exc:
+        log.warning("pipeline: could not check spend ceiling: %s", exc)
+    return True
 
-    raw_items = _collect_all(vertical, run_id=run_id)
+
+def run(
+    vertical: VerticalConfig,
+    org_id: str | None = None,
+    subscription_id: str | None = None,
+    spend_ceiling_usd: float = 0.0,
+) -> list[Lead]:
+    store.init_db()
+
+    # Enforce spend ceiling before doing any work
+    if not _check_spend_ceiling(subscription_id, spend_ceiling_usd):
+        return []
+
+    run_id = store.start_run(vertical.vertical_id, org_id=org_id)
+    log.info("run %s started for %s (org_id=%s, subscription_id=%s)",
+             run_id, vertical.vertical_id, org_id, subscription_id)
+    emit("run.start", run_id=run_id, vertical_id=vertical.vertical_id,
+         data={"org_id": org_id, "subscription_id": subscription_id})
+
+    raw_items = _collect_all(vertical, run_id=run_id, subscription_id=subscription_id)
     log.info("collected %d raw items (run_id=%s)", len(raw_items), run_id)
 
     # Each tuple carries (raw_idx, raw, signal/scored) so item_seq is the original
@@ -67,7 +106,9 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
 
     log.info("extracted %d signals from %d items (run_id=%s)", len(signals), len(raw_items), run_id)
 
-    seen_keys = store.seen_dedupe_keys()
+    # Dedupe is subscription-scoped so two customers in the same vertical
+    # don't suppress each other's leads.
+    seen_keys = store.seen_dedupe_keys(subscription_id=subscription_id)
     recent_names = store.recent_company_names(days=30)
 
     # Exact dedupe first (cheap — no LLM calls)
@@ -163,6 +204,12 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
     leads: list[Lead] = []
 
     for raw_idx, raw, scored in qualified:
+        # Re-check spend ceiling before each LLM-heavy item (research + draft)
+        if not _check_spend_ceiling(subscription_id, spend_ceiling_usd):
+            log.info("pipeline: spend ceiling hit mid-run at item %d — stopping (run_id=%s)",
+                     raw_idx, run_id)
+            break
+
         try:
             research = research_company(scored, vertical, run_id=run_id)
             if research is None:
@@ -204,8 +251,10 @@ def run(vertical: VerticalConfig, org_id: str | None = None) -> list[Lead]:
                 research=research,
                 draft=draft,
                 dedupe_key=signal_key(scored),
+                org_id=org_id,
+                subscription_id=subscription_id,
             )
-            persisted = store.save(lead, vertical.vertical_id)
+            persisted = store.save(lead, vertical.vertical_id, org_id=org_id, subscription_id=subscription_id)
             if not persisted:
                 log.warning("pipeline: lead %s not persisted (dedupe collision) — skipping delivery", lead.id)
                 continue

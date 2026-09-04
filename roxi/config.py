@@ -6,6 +6,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel
 
+from roxi.llm import HAIKU, SONNET
+
 
 class ICPConfig(BaseModel):
     description: str
@@ -29,6 +31,7 @@ class ChannelRegistry(BaseModel):
 class ChannelReddit(BaseModel):
     enabled: bool = False
     subreddits: list[str] = []
+    search_terms: list[str] = []
 
 
 class ChannelsConfig(BaseModel):
@@ -38,10 +41,10 @@ class ChannelsConfig(BaseModel):
 
 
 class ModelsConfig(BaseModel):
-    extractor: str = "claude-haiku-4-5-20251001"   # see roxi.llm.HAIKU
-    scorer: str = "claude-haiku-4-5-20251001"       # see roxi.llm.HAIKU
-    researcher: str = "claude-sonnet-4-6"           # see roxi.llm.SONNET
-    drafter: str = "claude-sonnet-4-6"              # see roxi.llm.SONNET
+    extractor: str = HAIKU
+    scorer: str = HAIKU
+    researcher: str = SONNET
+    drafter: str = SONNET
 
 
 class VerticalConfig(BaseModel):

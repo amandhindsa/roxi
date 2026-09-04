@@ -47,11 +47,12 @@ def init_db(path: str | None = None) -> None:
 
 # ── Leads ────────────────────────────────────────────────────────────────────
 
-def save(lead: Lead, vertical_id: str) -> bool:
+def save(lead: Lead, vertical_id: str, org_id: str | None = None, subscription_id: str | None = None) -> bool:
     """Persist lead. Returns True if inserted, False on dedupe_key collision."""
     sb = _get_client()
     result = sb.table("leads").upsert({
         "id": lead.id,
+        "org_id": org_id,
         "vertical_id": vertical_id,
         "raw_json": lead.raw.model_dump_json(),
         "signal_json": lead.signal.model_dump_json(),
@@ -60,6 +61,8 @@ def save(lead: Lead, vertical_id: str) -> bool:
         "draft_json": lead.draft.model_dump_json() if lead.draft else None,
         "dedupe_key": lead.dedupe_key,
         "status": lead.status,
+        "contact_email": lead.contact_email,
+        "subscription_id": subscription_id,
         "created_at": lead.created_at.isoformat() if hasattr(lead.created_at, "isoformat") else lead.created_at,
     }, on_conflict="dedupe_key", ignore_duplicates=True).execute()
 
@@ -69,14 +72,19 @@ def save(lead: Lead, vertical_id: str) -> bool:
 
     sb.table("dedupe_keys").upsert({
         "key": lead.dedupe_key,
+        "org_id": org_id,
+        "subscription_id": subscription_id,
         "created_at": _now(),
     }, on_conflict="key", ignore_duplicates=True).execute()
     return True
 
 
-def update_status(lead_id: str, status: str) -> None:
+def update_status(lead_id: str, status: str, rejection_reason: str | None = None) -> None:
     try:
-        _get_client().table("leads").update({"status": status}).eq("id", lead_id).execute()
+        update_data: dict = {"status": status}
+        if rejection_reason is not None:
+            update_data["rejection_reason"] = rejection_reason
+        _get_client().table("leads").update(update_data).eq("id", lead_id).execute()
     except Exception as exc:
         log.error("store.update_status failed for lead %s → %s: %s", lead_id, status, exc)
         raise
@@ -327,22 +335,32 @@ def daily_costs(days: int = 30, vertical_id: str | None = None) -> list[dict]:
 
 # ── Dedupe ───────────────────────────────────────────────────────────────────
 
-def seen_dedupe_keys(days: int = 90) -> set[str]:
-    """Return dedupe keys created within the last `days` days."""
+def seen_dedupe_keys(subscription_id: str | None = None, days: int = 90, org_id: str | None = None) -> set[str]:
+    """Return dedupe keys created within the last `days` days, scoped by subscription_id or org_id."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    result = _get_client().table("dedupe_keys").select("key").gte("created_at", cutoff).execute()
+    q = _get_client().table("dedupe_keys").select("key").gte("created_at", cutoff)
+    if subscription_id is not None:
+        q = q.eq("subscription_id", subscription_id)
+    elif org_id:
+        q = q.eq("org_id", org_id)
+    result = q.execute()
     return {r["key"] for r in result.data}
 
 
-def recent_company_names(days: int = 30) -> list[str]:
+def update_contact_email(lead_id: str, email: str) -> None:
+    try:
+        _get_client().table("leads").update({"contact_email": email}).eq("id", lead_id).execute()
+    except Exception as exc:
+        log.error("store.update_contact_email failed for lead %s: %s", lead_id, exc)
+        raise
+
+
+def recent_company_names(days: int = 30, org_id: str | None = None) -> list[str]:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    result = (
-        _get_client()
-        .table("leads")
-        .select("signal_json")
-        .gte("created_at", cutoff)
-        .execute()
-    )
+    q = _get_client().table("leads").select("signal_json").gte("created_at", cutoff)
+    if org_id:
+        q = q.eq("org_id", org_id)
+    result = q.execute()
     names = []
     for r in result.data:
         try:
@@ -501,5 +519,6 @@ def _row_to_lead(row: dict) -> Lead:
         draft=EmailDraft.model_validate_json(row["draft_json"]) if row.get("draft_json") else None,
         dedupe_key=row["dedupe_key"],
         status=row["status"],
+        contact_email=row.get("contact_email"),
         created_at=row["created_at"],
     )

@@ -91,7 +91,9 @@ def classify_reply(
 
     # Unsubscribe and hostile always suppress — do it immediately (compliance critical)
     if classification.suppress or classification.intent in ("unsubscribe", "hostile"):
-        contact_id = lead.scored.company_domain or lead.scored.company
+        # P4: key on verified address to match how the dispatcher suppresses.
+        # contact_email is always set by the time a reply arrives (we had to send to get a reply).
+        contact_id = lead.contact_email or lead.scored.company_domain or lead.scored.company
         store.add_to_suppression_list(
             contact_identifier=contact_id,
             channel="email",
