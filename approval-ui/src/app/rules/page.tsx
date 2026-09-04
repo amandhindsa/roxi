@@ -1,332 +1,224 @@
-"use client";
+"use client"
 
-import { useEffect, useState, useCallback } from "react";
-import {
-  rulesApi,
-  subscriptionsApi,
-  type RulesVersion,
-  type RulesPreview,
-  type Subscription,
-} from "@/lib/api";
+import { useEffect, useState } from "react"
+import { rulesApi, type RulesVersion, type RulesPreview } from "@/lib/api"
+import { SubscriptionSelector } from "@/components/SubscriptionSelector"
 
 export default function RulesPage() {
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [selectedSub, setSelectedSub] = useState<string>("");
-  const [latest, setLatest] = useState<RulesVersion | null>(null);
-  const [history, setHistory] = useState<RulesVersion[]>([]);
-  const [editText, setEditText] = useState<string>("");
-  const [preview, setPreview] = useState<RulesPreview | null>(null);
-  const [loadingLatest, setLoadingLatest] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const [restoring, setRestoring] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [subscriptionId, setSubscriptionId] = useState("")
+  const [latest, setLatest] = useState<RulesVersion | null>(null)
+  const [history, setHistory] = useState<RulesVersion[]>([])
+  const [editText, setEditText] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const [preview, setPreview] = useState<RulesPreview | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess] = useState(false)
 
   useEffect(() => {
-    subscriptionsApi.list().then((subs) => {
-      setSubscriptions(subs);
-      if (subs.length > 0) setSelectedSub(subs[0].id);
-    });
-  }, []);
+    if (!subscriptionId) return
+    setLoading(true)
+    setError(null)
+    Promise.all([
+      rulesApi.getLatest(subscriptionId).catch(() => null),
+      rulesApi.list(subscriptionId).catch(() => []),
+    ]).then(([lat, hist]) => {
+      setLatest(lat)
+      setHistory(hist)
+      setEditText(lat?.rules_text ?? "")
+    }).catch(err => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [subscriptionId])
 
-  const fetchLatest = useCallback(async () => {
-    if (!selectedSub) return;
-    setLoadingLatest(true);
-    setError(null);
+  const handleSave = async () => {
+    if (!subscriptionId || !editText.trim()) return
+    setSaving(true)
+    setError(null)
+    setSaveSuccess(false)
     try {
-      const data = await rulesApi.getLatest(selectedSub);
-      setLatest(data);
-      setEditText(data.rules_text);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load rules");
+      const saved = await rulesApi.save(subscriptionId, editText)
+      setLatest(saved)
+      setHistory(prev => [saved, ...prev])
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Save failed")
     } finally {
-      setLoadingLatest(false);
-    }
-  }, [selectedSub]);
-
-  const fetchHistory = useCallback(async () => {
-    if (!selectedSub) return;
-    setLoadingHistory(true);
-    try {
-      const data = await rulesApi.list(selectedSub);
-      setHistory(data);
-    } catch {
-      // non-fatal
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [selectedSub]);
-
-  useEffect(() => {
-    fetchLatest();
-    fetchHistory();
-    setPreview(null);
-  }, [fetchLatest, fetchHistory]);
-
-  async function handleSave() {
-    if (!selectedSub || !editText.trim()) return;
-    setSaving(true);
-    setError(null);
-    setSaveSuccess(false);
-    try {
-      const saved = await rulesApi.save(selectedSub, editText);
-      setLatest(saved);
-      setSaveSuccess(true);
-      await fetchHistory();
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save rules");
-    } finally {
-      setSaving(false);
+      setSaving(false)
     }
   }
 
-  async function handlePreview() {
-    if (!selectedSub || !editText.trim()) return;
-    setPreviewing(true);
-    setPreview(null);
-    setError(null);
+  const handlePreview = async () => {
+    if (!subscriptionId || !editText.trim()) return
+    setPreviewing(true)
+    setPreview(null)
     try {
-      const result = await rulesApi.preview(selectedSub, editText);
-      setPreview(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to preview rules");
+      const result = await rulesApi.preview(subscriptionId, editText)
+      setPreview(result)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Preview failed")
     } finally {
-      setPreviewing(false);
+      setPreviewing(false)
     }
   }
 
-  async function handleRestore(version: RulesVersion) {
-    setRestoring(version.id);
-    setEditText(version.rules_text);
-    setPreview(null);
-    setTimeout(() => setRestoring(null), 500);
+  const handleRestore = (version: RulesVersion) => {
+    setEditText(version.rules_text)
+    setPreview(null)
+    window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
-  const hasChanges = editText !== (latest?.rules_text ?? "");
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-baseline justify-between">
-        <h1 className="font-mono text-lg font-medium text-ink">Rules Editor</h1>
-        <select
-          value={selectedSub}
-          onChange={(e) => {
-            setSelectedSub(e.target.value);
-            setPreview(null);
-          }}
-          className="bg-panel border border-rule rounded-sm px-3 py-1.5 text-sm font-mono text-ink focus:outline-none focus:border-teal"
-        >
-          <option value="">Select subscription</option>
-          {subscriptions.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="font-mono font-bold text-lg text-ink">Rules editor</h1>
+        <SubscriptionSelector value={subscriptionId} onChange={setSubscriptionId} />
       </div>
 
+      {loading && <p className="text-ink-soft font-mono text-sm">loading…</p>}
+
       {error && (
-        <div className="bg-amber-wash border border-rule rounded-sm px-4 py-3">
-          <p className="text-sm font-mono text-amber">{error}</p>
+        <div className="border border-amber bg-amber-wash px-4 py-2 mb-4">
+          <p className="text-amber font-mono text-sm">{error}</p>
         </div>
       )}
 
-      {/* Section 1: Current summary */}
-      <section>
-        <h2 className="font-mono text-xs uppercase tracking-wider text-ink-soft mb-3">
-          Current Rules — Version {latest?.version ?? "—"}
-        </h2>
-        {loadingLatest ? (
-          <div className="bg-panel border border-rule rounded-sm px-4 py-6">
-            <p className="text-sm font-mono text-ink-soft">loading…</p>
-          </div>
-        ) : latest ? (
-          <div className="bg-panel border border-rule rounded-sm px-4 py-4">
-            <p className="text-xs font-mono text-ink-soft mb-2">
-              saved {new Date(latest.created_at).toLocaleString()}
-              {latest.created_by ? ` by ${latest.created_by}` : ""}
-            </p>
-            <p className="text-sm font-mono text-ink leading-relaxed whitespace-pre-wrap">
-              {latest.rules_text}
-            </p>
-          </div>
-        ) : (
-          <div className="border-2 border-dashed border-rule rounded-sm px-4 py-8 text-center">
-            <p className="text-sm font-mono text-ink-soft">no rules saved yet</p>
-          </div>
-        )}
-      </section>
-
-      {/* Section 2: Edit area */}
-      <section>
-        <h2 className="font-mono text-xs uppercase tracking-wider text-ink-soft mb-3">
-          Edit Rules
-        </h2>
-        <div className="space-y-3">
-          <textarea
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            placeholder="Write plain-English corrections, e.g. 'Exclude companies with fewer than 10 trucks. Prefer companies in the midwest. Score hiring signals higher if the job title mentions dispatch or fleet.'"
-            rows={12}
-            className="w-full bg-panel border border-rule rounded-sm px-4 py-3 text-sm font-mono text-ink placeholder:text-ink-soft focus:outline-none focus:border-teal resize-y"
-          />
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={handleSave}
-              disabled={saving || !hasChanges || !selectedSub}
-              className="bg-teal text-white text-sm font-mono px-4 py-2 rounded-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-            >
-              {saving ? "saving…" : "Save as new version"}
-            </button>
-            <button
-              onClick={handlePreview}
-              disabled={previewing || !editText.trim() || !selectedSub}
-              className="bg-panel border border-rule text-sm font-mono text-ink px-4 py-2 rounded-sm hover:bg-ground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {previewing ? "previewing…" : "Preview"}
-            </button>
-            {saveSuccess && (
-              <span className="text-sm font-mono text-teal">saved successfully</span>
-            )}
-            {hasChanges && !saveSuccess && (
-              <span className="text-xs font-mono text-ink-soft">unsaved changes</span>
-            )}
-          </div>
-        </div>
-
-        {/* Preview result */}
-        {preview && (
-          <div className="mt-4 bg-panel border border-rule rounded-sm p-4 space-y-3">
-            <p className="text-xs font-mono text-ink-soft uppercase tracking-wider">
-              Preview result
-            </p>
-            <div className="flex gap-6">
-              <div>
-                <p className="text-xs font-mono text-ink-soft">qualified (new rules)</p>
-                <p className="text-2xl font-mono font-medium tabular-nums text-ink">
-                  {preview.qualified_count}
-                </p>
+      {subscriptionId && !loading && (
+        <div className="space-y-6">
+          {/* Current rules */}
+          {latest && (
+            <div className="bg-panel border border-rule p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-mono text-ink-soft uppercase tracking-wide">
+                  Current rules — version {latest.version}
+                </span>
+                <span className="text-xs font-mono text-ink-soft">{formatDate(latest.created_at)}</span>
               </div>
-              <div>
-                <p className="text-xs font-mono text-ink-soft">qualified (current rules)</p>
-                <p className="text-2xl font-mono font-medium tabular-nums text-ink">
-                  {preview.previous_count}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-mono text-ink-soft">delta</p>
-                <p
-                  className={`text-2xl font-mono font-medium tabular-nums ${
-                    preview.qualified_count - preview.previous_count >= 0
-                      ? "text-teal"
-                      : "text-amber"
-                  }`}
-                >
-                  {preview.qualified_count - preview.previous_count >= 0 ? "+" : ""}
-                  {preview.qualified_count - preview.previous_count}
-                </p>
-              </div>
+              <pre className="text-sm font-mono text-ink whitespace-pre-wrap bg-ground border border-rule p-3">
+                {latest.rules_text}
+              </pre>
             </div>
-            {preview.added.length > 0 && (
-              <div>
-                <p className="text-xs font-mono text-teal mb-1">
-                  would add ({preview.added.length})
-                </p>
-                <ul className="space-y-0.5">
-                  {preview.added.map((c, i) => (
-                    <li key={i} className="text-xs font-mono text-ink">
-                      + {c}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {preview.removed.length > 0 && (
-              <div>
-                <p className="text-xs font-mono text-amber mb-1">
-                  would remove ({preview.removed.length})
-                </p>
-                <ul className="space-y-0.5">
-                  {preview.removed.map((c, i) => (
-                    <li key={i} className="text-xs font-mono text-ink">
-                      - {c}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
+          )}
 
-      {/* Section 3: Version history */}
-      <section>
-        <h2 className="font-mono text-xs uppercase tracking-wider text-ink-soft mb-3">
-          Version History
-        </h2>
-        {loadingHistory ? (
-          <div className="bg-panel border border-rule rounded-sm px-4 py-4">
-            <p className="text-sm font-mono text-ink-soft">loading…</p>
+          {!latest && (
+            <div className="border border-dashed border-rule p-8 text-center">
+              <p className="text-ink-soft font-mono text-sm">No rules saved yet. Write the first version below.</p>
+            </div>
+          )}
+
+          {/* Edit */}
+          <div className="bg-panel border border-rule p-4">
+            <div className="text-xs font-mono text-ink-soft uppercase tracking-wide mb-3">
+              Edit rules
+            </div>
+            <textarea
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              rows={14}
+              placeholder="Write rules in plain English. Example:
+- Minimum fleet size: 10 trucks
+- Exclude fleets over 500 trucks
+- Require US-based companies
+- Prioritize hiring signals (+20)
+- Pain complaints about ELD get +15"
+              className="w-full border border-rule bg-ground px-3 py-2 text-sm font-mono text-ink focus:outline-none focus:border-ink resize-y"
+            />
+
+            {/* Preview result */}
+            {preview && (
+              <div className="mt-3 bg-ground border border-rule p-3">
+                <div className="text-xs font-mono text-ink-soft mb-2 uppercase tracking-wide">Preview result</div>
+                <p className="text-sm font-mono text-ink">
+                  With these rules:{" "}
+                  <strong>{preview.qualified_count}</strong> qualified (was {preview.previous_count})
+                </p>
+                {preview.added.length > 0 && (
+                  <div className="mt-2">
+                    <span className="text-xs font-mono text-teal">Added: </span>
+                    <span className="text-xs font-mono text-ink">{preview.added.join(", ")}</span>
+                  </div>
+                )}
+                {preview.removed.length > 0 && (
+                  <div className="mt-1">
+                    <span className="text-xs font-mono text-amber">Removed: </span>
+                    <span className="text-xs font-mono text-ink">{preview.removed.join(", ")}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={handleSave}
+                disabled={saving || !editText.trim()}
+                className="px-4 py-2 bg-teal text-white text-xs font-mono hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                {saving ? "saving…" : "save as new version"}
+              </button>
+              <button
+                onClick={handlePreview}
+                disabled={previewing || !editText.trim()}
+                className="px-4 py-2 border border-rule text-xs font-mono text-ink-soft hover:text-ink disabled:opacity-50 transition-colors"
+              >
+                {previewing ? "previewing…" : "preview"}
+              </button>
+              {saveSuccess && (
+                <span className="text-xs font-mono text-teal self-center">Saved!</span>
+              )}
+            </div>
           </div>
-        ) : history.length === 0 ? (
-          <div className="border-2 border-dashed border-rule rounded-sm px-4 py-8 text-center">
-            <p className="text-sm font-mono text-ink-soft">no version history yet</p>
-          </div>
-        ) : (
-          <div className="bg-panel border border-rule rounded-sm overflow-x-auto">
-            <table className="w-full text-xs font-mono">
-              <thead>
-                <tr className="border-b border-rule text-ink-soft">
-                  {["version", "date", "excerpt", ""].map((h, i) => (
-                    <th
-                      key={i}
-                      className="px-3 py-2 text-left font-medium uppercase tracking-wider"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-rule">
-                {history.map((v) => (
-                  <tr
-                    key={v.id}
-                    className={`hover:bg-ground transition-colors ${
-                      v.id === latest?.id ? "bg-teal-wash" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2.5 tabular-nums text-ink font-medium">
-                      v{v.version}
-                      {v.id === latest?.id && (
-                        <span className="ml-2 text-teal text-[10px]">current</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-ink-soft whitespace-nowrap">
-                      {new Date(v.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2.5 text-ink-soft max-w-sm truncate">
-                      {v.rules_text.slice(0, 100)}
-                      {v.rules_text.length > 100 ? "…" : ""}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <button
-                        onClick={() => handleRestore(v)}
-                        disabled={restoring === v.id || v.id === latest?.id}
-                        className="text-teal text-xs font-mono underline underline-offset-2 hover:opacity-70 disabled:opacity-40 disabled:no-underline"
-                      >
-                        {restoring === v.id ? "restoring…" : "Restore"}
-                      </button>
-                    </td>
+
+          {/* Version history */}
+          {history.length > 0 && (
+            <div className="bg-panel border border-rule p-4">
+              <div className="text-xs font-mono text-ink-soft uppercase tracking-wide mb-3">Version history</div>
+              <table className="w-full text-xs font-mono">
+                <thead>
+                  <tr className="border-b border-rule text-left">
+                    <th className="py-1.5 pr-4 text-ink-soft font-medium">version</th>
+                    <th className="py-1.5 pr-4 text-ink-soft font-medium">date</th>
+                    <th className="py-1.5 pr-4 text-ink-soft font-medium">created by</th>
+                    <th className="py-1.5 text-ink-soft font-medium"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                </thead>
+                <tbody>
+                  {history.map(v => (
+                    <tr key={v.id} className="border-b border-rule">
+                      <td className="py-1.5 pr-4 text-ink">v{v.version}</td>
+                      <td className="py-1.5 pr-4 text-ink-soft">{formatDate(v.created_at)}</td>
+                      <td className="py-1.5 pr-4 text-ink-soft">{v.created_by ?? "—"}</td>
+                      <td className="py-1.5">
+                        <button
+                          onClick={() => handleRestore(v)}
+                          className="text-teal hover:opacity-70 transition-opacity"
+                        >
+                          restore
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!subscriptionId && !loading && (
+        <div className="border border-dashed border-rule p-10 text-center">
+          <p className="text-ink-soft font-mono text-sm">Select a subscription to manage rules</p>
+        </div>
+      )}
     </div>
-  );
+  )
 }
