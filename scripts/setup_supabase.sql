@@ -124,10 +124,14 @@ ALTER TABLE events            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE generation_costs  ENABLE ROW LEVEL SECURITY;
 
 -- Allow the Next.js UI (anon role) to read leads
+-- (dropped and replaced by org-scoped policy in the multi-tenancy section below)
+DROP POLICY IF EXISTS "anon_read_leads" ON leads;
 CREATE POLICY "anon_read_leads" ON leads
     FOR SELECT TO anon USING (true);
 
 -- Allow the Next.js UI (anon role) to read runs (for dashboard)
+-- (dropped and replaced by org-scoped policy in the multi-tenancy section below)
+DROP POLICY IF EXISTS "anon_read_runs" ON runs;
 CREATE POLICY "anon_read_runs" ON runs
     FOR SELECT TO anon USING (true);
 
@@ -274,18 +278,22 @@ ALTER TABLE lead_feedback  ENABLE ROW LEVEL SECURITY;
 -- ── RLS policies ──────────────────────────────────────────────────────────────
 
 -- organisations: members see their own org
+DROP POLICY IF EXISTS "members_read_own_org" ON organisations;
 CREATE POLICY "members_read_own_org" ON organisations
     FOR SELECT TO authenticated USING (id = current_org_id());
 
 -- members: see members in same org
+DROP POLICY IF EXISTS "members_read_own_org_members" ON members;
 CREATE POLICY "members_read_own_org_members" ON members
     FOR SELECT TO authenticated USING (org_id = current_org_id());
 
 -- subscriptions: see own org's subscriptions
+DROP POLICY IF EXISTS "members_read_subscriptions" ON subscriptions;
 CREATE POLICY "members_read_subscriptions" ON subscriptions
     FOR SELECT TO authenticated USING (org_id = current_org_id());
 
 -- vertical_rules: see own subscriptions' rules
+DROP POLICY IF EXISTS "members_read_rules" ON vertical_rules;
 CREATE POLICY "members_read_rules" ON vertical_rules
     FOR SELECT TO authenticated USING (
         subscription_id IN (SELECT id FROM subscriptions WHERE org_id = current_org_id())
@@ -294,11 +302,13 @@ CREATE POLICY "members_read_rules" ON vertical_rules
 -- leads: replace the broad anon policy with org-scoped authenticated access.
 -- Operator/service role reads all (via service key, which bypasses RLS).
 DROP POLICY IF EXISTS "anon_read_leads" ON leads;
+DROP POLICY IF EXISTS "members_read_leads" ON leads;
 CREATE POLICY "members_read_leads" ON leads
     FOR SELECT TO authenticated USING (org_id = current_org_id());
 
 -- runs: replace the broad anon policy with org-scoped authenticated access.
 DROP POLICY IF EXISTS "anon_read_runs" ON runs;
+DROP POLICY IF EXISTS "members_read_runs" ON runs;
 CREATE POLICY "members_read_runs" ON runs
     FOR SELECT TO authenticated USING (
         subscription_id IN (SELECT id FROM subscriptions WHERE org_id = current_org_id())
@@ -306,21 +316,26 @@ CREATE POLICY "members_read_runs" ON runs
     );
 
 -- setup_sessions: see own org's sessions
+DROP POLICY IF EXISTS "members_read_setup" ON setup_sessions;
 CREATE POLICY "members_read_setup" ON setup_sessions
     FOR SELECT TO authenticated USING (org_id = current_org_id());
 
 -- source_health: see own subscriptions' health records
+DROP POLICY IF EXISTS "members_read_source_health" ON source_health;
 CREATE POLICY "members_read_source_health" ON source_health
     FOR SELECT TO authenticated USING (
         subscription_id IN (SELECT id FROM subscriptions WHERE org_id = current_org_id())
     );
 
 -- lead_feedback: read and insert for own org's leads
+DROP POLICY IF EXISTS "members_read_feedback" ON lead_feedback;
 CREATE POLICY "members_read_feedback" ON lead_feedback
     FOR SELECT TO authenticated USING (
         lead_id IN (SELECT id FROM leads WHERE org_id = current_org_id())
     );
+DROP POLICY IF EXISTS "members_insert_feedback" ON lead_feedback;
 CREATE POLICY "members_insert_feedback" ON lead_feedback
     FOR INSERT TO authenticated WITH CHECK (
         lead_id IN (SELECT id FROM leads WHERE org_id = current_org_id())
     );
+
