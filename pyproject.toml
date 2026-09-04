@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn",
     "pyyaml>=6.0",
     "anyio>=4.0",
+    "twilio>=9.0",
 ]
 
 [tool.setuptools.packages.find]

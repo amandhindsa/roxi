@@ -175,6 +175,17 @@ def get_lead(lead_id: str) -> dict | None:
     return _row_to_api_dict(row)
 
 
+def find_lead_by_short_id(short_id: str) -> dict | None:
+    """Resolve the first 8 characters of a lead ID to the full lead row."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT * FROM leads WHERE id LIKE ? LIMIT 1", (short_id + "%",)
+        ).fetchone()
+    if not row:
+        return None
+    return _row_to_api_dict(row)
+
+
 def list_leads(
     vertical_id: str,
     status: str = "pending",

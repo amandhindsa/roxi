@@ -2,7 +2,7 @@
 Roxi API server.
 
 Endpoints:
-  POST /slack/actions          — Slack interactive webhook (approve/reject)
+  POST /whatsapp/webhook       — Twilio WhatsApp webhook (approve/reject via reply)
   GET  /api/leads              — List leads with filters
   GET  /api/leads/{id}         — Single lead
   PATCH /api/leads/{id}        — Update lead status (requires ROXI_API_KEY)
@@ -15,13 +15,11 @@ Endpoints:
   DELETE /api/suppression      — Remove an entry (requires ROXI_API_KEY)
   GET  /healthz                — Liveness probe (process alive)
   GET  /readyz                 — Readiness probe (DB + required env vars)
-  GET  /health                 — Deep health check (DB, env vars, Slack)
+  GET  /health                 — Deep health check (DB, env vars, Twilio)
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 import os
@@ -111,65 +109,68 @@ def _require_api_key(
 store.init_db()
 
 
-# ── Slack interactive webhook ────────────────────────────────────────────────
+# ── WhatsApp webhook (Twilio) ─────────────────────────────────────────────────
 
-def _verify_slack_signature(body: bytes, timestamp: str | None, signature: str | None) -> bool:
-    signing_secret = os.environ.get("SLACK_SIGNING_SECRET", "")
-    if not signing_secret:
-        # Refuse all Slack requests when the secret is not configured — safer than accepting.
-        log.error("SLACK_SIGNING_SECRET not set — rejecting all /slack/actions requests")
+def _verify_twilio_signature(body: bytes, url: str, signature: str | None) -> bool:
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    if not auth_token:
+        log.error("TWILIO_AUTH_TOKEN not set — rejecting all /whatsapp/webhook requests")
         return False
-    if not timestamp or not signature:
+    if not signature:
         return False
-    # Reject stale requests to prevent replay attacks (Slack recommends ≤5 min).
     try:
-        if abs(time.time() - float(timestamp)) > 300:
-            log.warning("Slack timestamp too old — possible replay attack")
-            return False
-    except ValueError:
-        return False
-    basestring = f"v0:{timestamp}:{body.decode()}"
-    mac = hmac.new(signing_secret.encode(), basestring.encode(), hashlib.sha256)
-    expected = "v0=" + mac.hexdigest()
-    return hmac.compare_digest(expected, signature)
-
-
-@app.post("/slack/actions")
-@_rate_limit("30/minute")
-async def slack_actions(request: Request):
-    body = await request.body()
-    timestamp = request.headers.get("X-Slack-Request-Timestamp")
-    signature = request.headers.get("X-Slack-Signature")
-    if not _verify_slack_signature(body, timestamp, signature):
-        raise HTTPException(status_code=401, detail="Invalid Slack signature")
-
-    payload_str = urllib.parse.unquote_plus(body.decode().removeprefix("payload="))
-    try:
-        payload = json.loads(payload_str)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid payload")
-
-    actions = payload.get("actions", [])
-    if not actions:
-        return Response(status_code=200)
-
-    action = actions[0]
-    decision = action.get("value", "")
-    callback_id = payload.get("callback_id") or action.get("block_id", "")
-    lead_id = callback_id
-
-    if decision not in ("approved", "rejected"):
-        log.warning("Unknown decision %r for lead %s", decision, lead_id)
-        return Response(status_code=200)
-
-    try:
-        store.update_status(lead_id, decision)
-        log.info("Lead %s → %s via Slack", lead_id, decision)
+        from twilio.request_validator import RequestValidator
+        validator = RequestValidator(auth_token)
+        params = dict(urllib.parse.parse_qsl(body.decode()))
+        return validator.validate(url, params, signature)
     except Exception as exc:
-        log.error("Failed to update lead %s: %s", lead_id, exc, exc_info=True)
+        log.warning("Twilio signature validation error: %s", exc)
+        return False
+
+
+@app.post("/whatsapp/webhook")
+@_rate_limit("30/minute")
+async def whatsapp_webhook(request: Request):
+    body = await request.body()
+    signature = request.headers.get("X-Twilio-Signature")
+    url = str(request.url)
+    if not _verify_twilio_signature(body, url, signature):
+        raise HTTPException(status_code=401, detail="Invalid Twilio signature")
+
+    params = dict(urllib.parse.parse_qsl(body.decode()))
+    text = params.get("Body", "").strip().lower()
+
+    # Expected format: "approve <8-char-id>" or "reject <8-char-id>"
+    parts = text.split()
+    if len(parts) != 2 or parts[0] not in ("approve", "reject"):
+        return Response(
+            content='<?xml version="1.0"?><Response><Message>Reply "approve &lt;id&gt;" or "reject &lt;id&gt;".</Message></Response>',
+            media_type="application/xml",
+        )
+
+    decision = "approved" if parts[0] == "approve" else "rejected"
+    short_id = parts[1]
+
+    # Resolve short id (first 8 chars) to full lead id
+    lead = store.find_lead_by_short_id(short_id)
+    if not lead:
+        return Response(
+            content=f'<?xml version="1.0"?><Response><Message>Lead "{short_id}" not found.</Message></Response>',
+            media_type="application/xml",
+        )
+
+    try:
+        store.update_status(lead["id"], decision)
+        log.info("Lead %s → %s via WhatsApp", lead["id"], decision)
+    except Exception as exc:
+        log.error("Failed to update lead %s: %s", lead["id"], exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal error updating lead status")
 
-    return {"text": f"Lead marked {decision}."}
+    company = json.loads(lead.get("scored_json", "{}")).get("company", lead["id"])
+    return Response(
+        content=f'<?xml version="1.0"?><Response><Message>✅ {company} marked {decision}.</Message></Response>',
+        media_type="application/xml",
+    )
 
 
 # ── Leads ────────────────────────────────────────────────────────────────────
@@ -326,7 +327,8 @@ async def health():
     # Required env vars
     required_vars = ["ANTHROPIC_API_KEY"]
     optional_vars = [
-        "SLACK_WEBHOOK_URL", "SLACK_SIGNING_SECRET",
+        "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
+        "TWILIO_WHATSAPP_FROM", "WHATSAPP_TO",
         "INSTANTLY_API_KEY", "INSTANTLY_CAMPAIGN_ID",
         "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET",
         "ROXI_API_KEY",
@@ -343,28 +345,32 @@ async def health():
 
     checks["env"] = {"status": "ok" if overall == "ok" else "degraded", "vars": env_status}
 
-    # Slack connectivity check — run in a thread to avoid blocking the event loop.
-    slack_url = os.environ.get("SLACK_WEBHOOK_URL")
-    if slack_url:
+    # Twilio connectivity check — run in a thread to avoid blocking the event loop.
+    twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    twilio_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    if twilio_sid and twilio_token:
         try:
             import anyio
             import requests as _req
 
-            def _ping_slack() -> dict:
+            def _ping_twilio() -> dict:
                 t0 = time.perf_counter()
-                r = _req.post(slack_url, json={"text": ""}, timeout=3)
+                r = _req.get(
+                    f"https://api.twilio.com/2010-04-01/Accounts/{twilio_sid}.json",
+                    auth=(twilio_sid, twilio_token),
+                    timeout=5,
+                )
                 latency_ms = int((time.perf_counter() - t0) * 1000)
-                # Slack returns 400 "no_text" for empty — channel is live
                 return {
-                    "status": "ok" if r.status_code in (200, 400) else "error",
+                    "status": "ok" if r.status_code == 200 else "error",
                     "http_status": r.status_code,
                     "latency_ms": latency_ms,
                 }
 
-            checks["slack"] = await anyio.to_thread.run_sync(_ping_slack)
+            checks["twilio"] = await anyio.to_thread.run_sync(_ping_twilio)
         except Exception as exc:
-            checks["slack"] = {"status": "error", "error": str(exc)}
+            checks["twilio"] = {"status": "error", "error": str(exc)}
     else:
-        checks["slack"] = {"status": "not_configured"}
+        checks["twilio"] = {"status": "not_configured"}
 
     return {"status": overall, "checks": checks}
