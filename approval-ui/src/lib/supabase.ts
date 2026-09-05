@@ -1,38 +1,51 @@
-import { createBrowserClient as _createBrowserClient, createServerClient as _createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+"use client"
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const service = process.env.SUPABASE_SERVICE_KEY
+import { createBrowserClient as _createBrowserClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 
 // For client components
 export function createBrowserClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   return _createBrowserClient(url, anon)
 }
 
-// For server components / route handlers
-export async function createSupabaseServerClient() {
-  const cookieStore = await cookies()
-  return _createServerClient(url, anon, {
-    cookies: {
-      getAll() { return cookieStore.getAll() },
-      setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options as Parameters<typeof cookieStore.set>[2])
-          )
-        } catch {
-          // In Server Components cookies() is read-only — ignore
-        }
-      }
-    }
-  })
+// Legacy lazy singletons — safe to use client-side only
+let _supabase: ReturnType<typeof createClient> | null = null
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+
+export function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+  }
+  return _supabase
 }
 
-// Legacy exports — kept for backwards compatibility
-export const supabase = createClient(url, anon)
-export const supabaseAdmin = service ? createClient(url, service) : null
+export function getSupabaseAdmin() {
+  const service = process.env.SUPABASE_SERVICE_KEY
+  if (!_supabaseAdmin && service) {
+    _supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, service)
+  }
+  return _supabaseAdmin
+}
+
+// Keep legacy named exports for backwards compat — but make them lazy proxies
+// that won't blow up at module load time when env vars aren't set
+export const supabase = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_target, prop) {
+    return (getSupabase() as unknown as Record<string | symbol, unknown>)[prop]
+  }
+})
+export const supabaseAdmin = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_target, prop) {
+    const admin = getSupabaseAdmin()
+    if (!admin) return undefined
+    return (admin as unknown as Record<string | symbol, unknown>)[prop]
+  }
+})
 
 // Types
 export type LeadRow = {
