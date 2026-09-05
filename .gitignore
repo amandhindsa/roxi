@@ -19,6 +19,7 @@ assets/generated/
 # Env
 .env
 .env.*
+!approval-ui/.env.production
 
 # Node
 approval-ui/node_modules/
