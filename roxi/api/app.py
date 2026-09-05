@@ -946,3 +946,122 @@ async def operator_runs(
     _op=Depends(_require_operator),
 ):
     return _call_store("operator_list_runs", limit=limit)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Operator: seed run — inject raw text items, bypass collectors
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SeedItem(BaseModel):
+    title: str
+    body: str
+    source_url: str = "https://seed"
+
+class SeedRunRequest(BaseModel):
+    vertical_id: str = "hauler_ai"
+    org_id: str | None = None
+    subscription_id: str | None = None
+    items: list[SeedItem]
+
+def _run_seed(vertical_id: str, org_id: str | None, subscription_id: str | None,
+              raw_items: list[dict]) -> None:
+    """Run the AI pipeline stages on provided raw items (no collectors)."""
+    import logging as _log
+    from roxi.config import load_vertical
+    from roxi.models import RawItem
+    from roxi.agents.extractor import extract
+    from roxi.agents.scorer import score
+    from roxi.agents.researcher import research_company
+    from roxi.agents.drafter import draft_email
+    from roxi.dedupe import dedupe_exact, dedupe_company, signal_key
+    from roxi import store
+
+    log = _log.getLogger("roxi.seed_run")
+    store.init_db()
+
+    import pathlib, os
+    yaml_candidates = [
+        pathlib.Path(f"verticals/{vertical_id}.yaml"),
+        pathlib.Path(f"/app/verticals/{vertical_id}.yaml"),
+    ]
+    vertical = None
+    for p in yaml_candidates:
+        if p.exists():
+            vertical = load_vertical(p)
+            break
+    if vertical is None:
+        log.error("seed_run: vertical %s not found", vertical_id)
+        return
+
+    run_id = store.start_run(vertical_id, org_id=org_id, subscription_id=subscription_id)
+    log.info("seed_run %s started (items=%d)", run_id, len(raw_items))
+
+    from datetime import datetime, timezone
+    items = [RawItem(channel="job_boards", source_url=r["source_url"],
+                     title=r["title"], body=r["body"],
+                     fetched_at=datetime.now(timezone.utc).isoformat()) for r in raw_items]
+
+    signals = []
+    for item in items:
+        try:
+            sig = extract(item, vertical)
+            if sig:
+                signals.append(sig)
+                log.info("extracted: %s fleet=%s type=%s", sig.company, sig.fleet_size, sig.signal_type)
+        except Exception as exc:
+            log.error("extractor error: %s", exc)
+
+    log.info("seed_run: %d signals extracted", len(signals))
+
+    seen_keys = store.seen_dedupe_keys(subscription_id=subscription_id)
+    signals = [s for s in signals if signal_key(s) not in seen_keys]
+    signals = dedupe_company(signals, store.recent_company_names(org_id=org_id))
+
+    scored = []
+    for sig in signals:
+        try:
+            result = score(sig, vertical)
+            if result:
+                scored.append(result)
+                log.info("scored: %s score=%d reason=%s", result.company_name, result.score, result.reason[:80])
+        except Exception as exc:
+            log.error("scorer error for %s: %s", sig.company, exc)
+
+    qualified = [s for s in scored if s.score >= vertical.qualify_threshold]
+    log.info("seed_run: %d qualified (threshold=%d)", len(qualified), vertical.qualify_threshold)
+
+    leads = []
+    for sig in qualified[:15]:
+        try:
+            lead = research_company(sig, vertical)
+            if lead:
+                leads.append(lead)
+                log.info("researched: %s contact=%s", lead.company_name, lead.contact_email or "none")
+        except Exception as exc:
+            log.error("researcher error for %s: %s", sig.company_name, exc)
+
+    final = []
+    for lead in leads:
+        try:
+            drafted = draft_email(lead, vertical)
+            ok = store.save(drafted, vertical_id, org_id=org_id, subscription_id=subscription_id)
+            if ok:
+                final.append(drafted)
+                log.info("drafted + saved: %s subject=%s", drafted.company_name, drafted.subject_line)
+        except Exception as exc:
+            log.error("drafter error for %s: %s", lead.company_name, exc)
+
+    store.finish_run(run_id, status="success", leads_found=len(final))
+    log.info("seed_run %s complete — %d leads saved for approval", run_id, len(final))
+
+
+@app.post("/api/operator/seed-run", status_code=202)
+async def operator_seed_run(body: SeedRunRequest, _op=Depends(_require_operator)):
+    """Inject raw text items and run AI agents — no collectors needed."""
+    import concurrent.futures, multiprocessing
+    ctx = multiprocessing.get_context("spawn")
+    raw = [{"title": i.title, "body": i.body, "source_url": i.source_url} for i in body.items]
+    ex = concurrent.futures.ProcessPoolExecutor(max_workers=1, mp_context=ctx)
+    ex.submit(_run_seed, body.vertical_id, body.org_id, body.subscription_id, raw)
+    ex.shutdown(wait=False)
+    return {"status": "accepted", "items": len(body.items)}
