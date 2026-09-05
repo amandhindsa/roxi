@@ -14,14 +14,9 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
-
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-
-if TYPE_CHECKING:
-    import types
 
 log = logging.getLogger(__name__)
 
@@ -32,13 +27,8 @@ _SCHEDULER_DB = os.environ.get("ROXI_SCHEDULER_DB", "scheduler.db")
 _SYNC_INTERVAL_MINUTES = 60
 
 
-def start_scheduler(store_module: "types.ModuleType") -> None:
-    """Initialise and start the APScheduler BackgroundScheduler.
-
-    Args:
-        store_module: The roxi.store module (or its Supabase replacement).
-                      Passed in so callers control which backend is active.
-    """
+def start_scheduler(store_module=None) -> None:
+    """Initialise and start the APScheduler BackgroundScheduler."""
     global _scheduler
 
     if _scheduler is not None and _scheduler.running:
@@ -57,7 +47,6 @@ def start_scheduler(store_module: "types.ModuleType") -> None:
         _sync_jobs,
         trigger="interval",
         minutes=_SYNC_INTERVAL_MINUTES,
-        args=[store_module],
         id="__sync_jobs__",
         name="Sync subscription jobs",
         replace_existing=True,
@@ -77,7 +66,7 @@ def stop_scheduler() -> None:
     _scheduler = None
 
 
-def _sync_jobs(store_module: "types.ModuleType") -> None:
+def _sync_jobs() -> None:
     """Read all active subscriptions and reconcile APScheduler jobs to match.
 
     - Adds a job for every active subscription that lacks one.
@@ -86,12 +75,14 @@ def _sync_jobs(store_module: "types.ModuleType") -> None:
 
     Safe to call repeatedly — all operations are idempotent.
     """
+    from roxi import store as _store
+
     if _scheduler is None or not _scheduler.running:
         log.warning("scheduler._sync_jobs: scheduler is not running")
         return
 
     try:
-        subscriptions = store_module.list_active_subscriptions()
+        subscriptions = _store.list_active_subscriptions()
     except Exception as exc:
         log.error("scheduler._sync_jobs: failed to load subscriptions: %s", exc)
         return
