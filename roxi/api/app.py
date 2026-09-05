@@ -823,9 +823,23 @@ async def list_source_health(subscription_id: str, user: dict = Depends(_require
 @app.post("/api/subscriptions/{subscription_id}/run", status_code=202)
 async def trigger_run(
     subscription_id: str,
-    user: dict = Depends(_require_auth),
+    request: Request,
+    user: dict | None = None,
 ):
-    """Trigger an immediate pipeline run for this subscription (no email delivery)."""
+    """Trigger an immediate pipeline run for this subscription.
+    Accepts either a user JWT (Authorization: Bearer) or X-Operator-Key header.
+    """
+    op_key = request.headers.get("X-Operator-Key")
+    expected = os.environ.get("OPERATOR_API_KEY")
+    if op_key and expected and op_key == expected:
+        pass  # operator auth OK
+    else:
+        try:
+            credentials = await HTTPBearer()(request)
+            _decode_jwt(credentials.credentials)
+        except Exception:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
     import threading
     from roxi.scheduler import _run_subscription
     t = threading.Thread(target=_run_subscription, args=(subscription_id,), daemon=True)

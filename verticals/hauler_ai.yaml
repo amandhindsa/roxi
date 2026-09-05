@@ -49,7 +49,7 @@ channels:
       - "dispatcher trucking SK MB"
       - "customs coordinator carrier Canada"
   registry:
-    enabled: false
+    enabled: true
   reddit:
     enabled: false
     subreddits:

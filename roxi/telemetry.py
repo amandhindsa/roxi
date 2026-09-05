@@ -63,24 +63,41 @@ def _write(
     data: dict,
     level: str,
 ) -> None:
-    from roxi.store import _conn, _now
+    import os, datetime as _dt
+    ts = _dt.datetime.now(_dt.timezone.utc).isoformat()
 
-    ts = _now()  # use store's canonical timestamp format for consistent SQL comparisons
-    with _conn() as con:
-        con.execute(
-            """INSERT INTO events
-               (id, event, level, run_id, org_id, vertical_id, agent, lead_id, data_json, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (
-                str(uuid.uuid4()),
-                event,
-                level,
-                run_id,
-                org_id,
-                vertical_id,
-                agent,
-                lead_id,
-                json.dumps(data),
-                ts,
-            ),
-        )
+    if os.environ.get("USE_SUPABASE") == "1":
+        from roxi.store_supabase import _get_client
+        _get_client().table("events").insert({
+            "id": str(uuid.uuid4()),
+            "event": event,
+            "level": level,
+            "run_id": run_id,
+            "org_id": org_id,
+            "vertical_id": vertical_id,
+            "agent": agent,
+            "lead_id": lead_id,
+            "data_json": json.dumps(data),
+            "created_at": ts,
+        }).execute()
+    else:
+        from roxi.store import _conn, _now
+        ts = _now()
+        with _conn() as con:
+            con.execute(
+                """INSERT INTO events
+                   (id, event, level, run_id, org_id, vertical_id, agent, lead_id, data_json, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    str(uuid.uuid4()),
+                    event,
+                    level,
+                    run_id,
+                    org_id,
+                    vertical_id,
+                    agent,
+                    lead_id,
+                    json.dumps(data),
+                    ts,
+                ),
+            )
