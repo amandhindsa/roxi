@@ -840,10 +840,11 @@ async def trigger_run(
         except Exception:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-    import threading
+    import concurrent.futures
     from roxi.scheduler import _run_subscription
-    t = threading.Thread(target=_run_subscription, args=(subscription_id,), daemon=True)
-    t.start()
+    executor = concurrent.futures.ProcessPoolExecutor(max_workers=1)
+    executor.submit(_run_subscription, subscription_id)
+    executor.shutdown(wait=False)
     return {"status": "accepted", "subscription_id": subscription_id}
 
 
