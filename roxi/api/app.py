@@ -445,8 +445,7 @@ async def readyz():
     issues: list[str] = []
 
     try:
-        with store._conn() as con:
-            con.execute("SELECT 1").fetchone()
+        store.list_runs(limit=1)
     except Exception as exc:
         issues.append(f"db: {exc}")
 
@@ -467,8 +466,7 @@ async def health():
     # DB connectivity
     try:
         t0 = time.perf_counter()
-        with store._conn() as con:
-            con.execute("SELECT 1").fetchone()
+        store.list_runs(limit=1)
         checks["db"] = {"status": "ok", "latency_ms": int((time.perf_counter() - t0) * 1000)}
     except Exception as exc:
         checks["db"] = {"status": "error", "error": str(exc)}
@@ -816,6 +814,23 @@ async def list_source_health(subscription_id: str, user: dict = Depends(_require
         subscription_id=subscription_id,
         user_id=user["sub"],
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Manual run trigger
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/subscriptions/{subscription_id}/run", status_code=202)
+async def trigger_run(
+    subscription_id: str,
+    user: dict = Depends(_require_auth),
+):
+    """Trigger an immediate pipeline run for this subscription (no email delivery)."""
+    import threading
+    from roxi.scheduler import _run_subscription
+    t = threading.Thread(target=_run_subscription, args=(subscription_id,), daemon=True)
+    t.start()
+    return {"status": "accepted", "subscription_id": subscription_id}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
